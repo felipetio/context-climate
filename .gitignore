@@ -27,6 +27,7 @@ Thumbs.db
 
 # Claude Code
 .claude/settings.local.json
+.claude/worktrees/
 
 # BMad OpenClaw plugin state (not project source)
 _bmad/config.yaml
