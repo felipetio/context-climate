@@ -13,6 +13,10 @@ optimized_for_llm: true
 
 _Critical rules and patterns AI agents must follow when implementing code in this project. Focused on unobvious details that agents commonly miss._
 
+## Project Purpose
+
+Context Climate is a journalist dossier creation assistant. Journalists are guided through a structured investigation using World Bank Data360 data; the primary output is a publishable markdown dossier document (not just chat responses). New chat = new dossier investigation. A conversational query mode (for ad-hoc data lookup) coexists with Dossier Mode as a secondary feature.
+
 ---
 
 ## Technology Stack & Versions
@@ -142,6 +146,21 @@ All tools MUST return one of exactly two shapes:
 - **DON'T** put system prompt text in `app/chat.py` — it belongs in `app/prompts.py`
 
 ---
+
+## Epics Overview
+
+| Epic | Title | Status |
+|------|-------|--------|
+| 1 | MCP Server — World Bank Data360 | Done |
+| 2 | Web App Foundation (Chainlit) | Done |
+| 3 | Citation Pipeline | Done |
+| 4 | RAG / Document Upload | Done |
+| 5–8 | (earlier epics) | Done |
+| 9 | Server-Side Data Sources Block | Done |
+| 10 | Dossier Mode — Document JSX element, canvas integration, apply_ops engine, LLM system prompt | In Progress |
+| 11 | Dossier Mode — Full interview flow, checklist, split-panel UI | Planned |
+| 12 | Dossier Mode — Case studies, Pauta Sugerida, Methodology | Planned |
+| 13 | Dossier Export & Sharing | Planned |
 
 ## Usage Guidelines
 
