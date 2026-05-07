@@ -32,27 +32,39 @@ O custo dessa lacuna é real: desinformação climática fica sem resposta porqu
 
 ## A Solução
 
-Context Climate é uma interface conversacional para dados climáticos do Banco Mundial. Usuários fazem perguntas em linguagem natural. O sistema:
+Context Climate combina investigação jornalística guiada com consulta conversacional de dados climáticos do Banco Mundial. O artefato primário é um dossiê markdown estruturado e publicável — não apenas respostas de chat. O sistema:
 
-1. **Encontra os dados certos** usando a busca vetorial da API Data360 para mapear perguntas aos indicadores corretos
-2. **Gera narrativas contextuais** que vão além dos números, fornecendo contexto histórico, comparações e tendências
-3. **Cita cada ponto de dado** com atribuição completa de fonte do Banco Mundial (campos DATA_SOURCE extraídos diretamente da API), para que jornalistas possam citar com confiança
-4. **Mostra a atualidade dos dados** exibindo o ano mais recente disponível, com avisos claros quando os dados têm mais de 2 anos
-5. **Permite verificação de afirmações** onde o usuário pode colar uma afirmação climática e receber um veredito baseado em dados oficiais
-6. **Cruza dados oficiais com documentos do usuário** permitindo upload de arquivos (CSV, PDF, TXT, MD) para busca semântica e análise comparativa contra os indicadores do Banco Mundial
-7. **Suporta diálogo de acompanhamento** para que usuários possam refinar, comparar e explorar mais fundo
+1. **Cria dossiês jornalísticos completos** guiando o jornalista por uma investigação estruturada com dados reais do Banco Mundial. Um checklist invisível de 10 itens (tópico, geografia, recorte temporal, público, validação de dados, estatísticas-chave, estrutura, estudos de caso, sugestões de pauta, metodologia) conduz uma entrevista conversacional. A partir do 5º item concluído, uma interface split-panel abre automaticamente: chat à esquerda, dossiê markdown ao vivo à direita. O resultado é um documento publicável com capa, resumo executivo com grandes números, partes temáticas com tabelas de dados, perfis municipais, caixas "Pauta Sugerida" e seção de Metodologia — editado pelo LLM via patch ops cirúrgicos, nunca inline no chat.
+2. **Encontra os dados certos** usando a busca vetorial da API Data360 para mapear perguntas aos indicadores corretos
+3. **Gera narrativas contextuais** que vão além dos números, fornecendo contexto histórico, comparações e tendências
+4. **Cita cada ponto de dado** com atribuição completa de fonte do Banco Mundial (campos DATA_SOURCE extraídos diretamente da API), para que jornalistas possam citar com confiança
+5. **Mostra a atualidade dos dados** exibindo o ano mais recente disponível, com avisos claros quando os dados têm mais de 2 anos
+6. **Permite verificação de afirmações** onde o usuário pode colar uma afirmação climática e receber um veredito baseado em dados oficiais
+7. **Cruza dados oficiais com documentos do usuário** permitindo upload de arquivos (CSV, PDF, TXT, MD) para busca semântica e análise comparativa contra os indicadores do Banco Mundial
+8. **Suporta diálogo de acompanhamento** para que usuários possam refinar, comparar e explorar mais fundo
 
 Quando nenhum indicador relevante é encontrado, o sistema diz isso de forma transparente, porque um "não tenho dados para isso" confiável é mais valioso que uma resposta errada com confiança.
 
-**Exemplo de interação:**
+**Exemplo de investigação com dossiê:**
 
-> **Usuário:** "Como a seca mudou no Brasil na última década?"
+> **Jornalista:** "Quero investigar a seca no Nordeste do Brasil para uma matéria do Nexo."
 >
-> **Context Climate:** "Segundo os Indicadores de Desenvolvimento do Banco Mundial, o Brasil registrou um aumento de 23% em dias consecutivos sem chuva entre 2014 e 2024, comparado a uma média global de 12%. Essa tendência se acelerou após 2019... [Fonte: WB_WDI_EN_CLC_DRHT, World Bank Data360 | Dados mais recentes: 2024]"
+> **Context Climate:** "Vamos montar seu dossiê. Qual o recorte temporal que você quer cobrir?"
 >
-> **Usuário:** "Como isso se compara a outros países da América do Sul?"
+> **Jornalista:** "Última década, 2014-2024."
 >
-> **Context Climate:** [gera análise comparativa com citações individuais por país]
+> **Context Climate:** "Perfeito. Você quer focar em estados específicos ou toda a região?"
+>
+> [após 5 itens do checklist concluídos, o painel do dossiê abre automaticamente à direita]
+>
+> **Dossiê (ao vivo, painel direito):**
+> ```
+> # Seca no Nordeste: Uma Década de Crise Hídrica (2014–2024)
+> **Estatística-chave:** +38% em dias consecutivos sem chuva no Nordeste vs. +12% na média global
+> Fonte: WB_WDI_EN_CLC_DRHT, World Bank Data360 | Dados mais recentes: 2024
+> ```
+>
+> [o jornalista continua o chat; o dossiê é atualizado via patches sem interromper a conversa]
 
 **Exemplo de cruzamento de dados:**
 
@@ -107,6 +119,11 @@ Estudantes, ativistas e cidadãos engajados preparando apresentações, verifica
 
 ### MVP (Protótipo do Desafio)
 
+- Modo Dossiê: interface split-panel (chat à esquerda, dossiê markdown ao vivo à direita)
+- Checklist invisível de 10 itens para guiar a entrevista do LLM (ativa o painel após o 5º item)
+- Estrutura fixa de dossiê (capa, resumo executivo, partes temáticas, estudos de caso, Pauta Sugerida, Metodologia)
+- Edição cirúrgica do dossiê via apply_ops (patch ops) — nunca inline no chat
+- Toda afirmação do dossiê fundamentada em chamadas reais às ferramentas MCP
 - Consultas de dados climáticos em linguagem natural
 - Integração com API Data360 do Banco Mundial via servidor MCP
 - Respostas com dados por país, com citações de fonte e ano dos dados
@@ -126,6 +143,8 @@ Estudantes, ativistas e cidadãos engajados preparando apresentações, verifica
 - Dashboards customizados e visualizações avançadas
 
 ## Visão
+
+O dossiê jornalístico é o artefato primário do Context Climate. Em vez de respostas conversacionais efêmeras, o jornalista sai de cada sessão com um documento estruturado, citável e pronto para publicação — construído sobre dados verificados do Banco Mundial.
 
 Se o Context Climate tiver sucesso, ele se torna a forma padrão como jornalistas e cidadãos interagem com dados de desenvolvimento, não apenas climáticos. Os 10.000+ indicadores do Banco Mundial cobrem saúde, educação, economia, governança. O mesmo padrão conversacional se aplica a todos eles.
 
