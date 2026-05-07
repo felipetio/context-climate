@@ -8,9 +8,9 @@ inputDocuments:
   - product-brief-bmad-distillate.md
   - prd.md
   - research/domain-research-report.md
-  - research/technical-data360-voice-stack-research-2026-03-23.md
+  - research/technical-context-climate-stack-research-2026-03-23.md
 workflowType: 'architecture'
-project_name: 'Data360 Voice'
+project_name: 'Context Climate'
 user_name: 'Felipe'
 date: '2026-03-23'
 ---
@@ -91,8 +91,8 @@ Python full-stack web (conversational AI), based on project requirements. All co
 
 ```bash
 # Project setup with uv
-uv init data360-voice
-cd data360-voice
+uv init context-climate
+cd context-climate
 uv add fastmcp chainlit fastapi uvicorn asyncpg anthropic httpx
 
 # Chainlit config
@@ -109,7 +109,7 @@ chainlit init
 **Project Structure:**
 
 ```
-data360-voice/
+context-climate/
 ├── mcp_server/           # MCP server (standalone, dual transport)
 │   ├── __init__.py
 │   ├── server.py         # FastMCP server definition + tools
@@ -472,7 +472,7 @@ response = await self.client.get(f"{self.base_url}/data360/data", params=params)
 ### Complete Project Directory Structure
 
 ```
-data360-voice/
+context-climate/
 ├── pyproject.toml                  # uv project config, dependencies
 ├── .env.example                    # template for environment variables
 ├── .gitignore
@@ -762,7 +762,7 @@ chainlit run app/chat.py
 - Preserve Data360 API field names, never rename them
 
 **First Implementation Priority:**
-1. `uv init data360-voice && cd data360-voice && uv add fastmcp httpx`
+1. `uv init context-climate && cd context-climate && uv add fastmcp httpx`
 2. Create `mcp_server/config.py` (base URL, timeouts, pagination limits)
 3. Create `mcp_server/data360_client.py` (async API client with pagination)
 4. Create `mcp_server/server.py` (FastMCP server with 5 tools)
@@ -773,7 +773,7 @@ chainlit run app/chat.py
 
 ## Architecture Addendum: Epics 5-7 (Offline Search, Temporal Coverage, MCP Prompts)
 
-_Added 2026-03-25. These features extend the MCP server (Epic 1 scope) with offline indicator discovery, temporal coverage checks, and MCP prompts/resources. Inspired by the [llnOrmll/world-bank-data-mcp](https://github.com/llnOrmll/world-bank-data-mcp) reference implementation, adapted to Data360 Voice's existing patterns and climate-focused mission._
+_Added 2026-03-25. These features extend the MCP server (Epic 1 scope) with offline indicator discovery, temporal coverage checks, and MCP prompts/resources. Inspired by the [llnOrmll/world-bank-data-mcp](https://github.com/llnOrmll/world-bank-data-mcp) reference implementation, adapted to Context Climate's existing patterns and climate-focused mission._
 
 ### New Files
 
@@ -949,7 +949,7 @@ def databases_resource() -> str:
 @mcp.resource("data360://workflow")
 def workflow_resource() -> str:
     """Recommended 3-step data retrieval workflow."""
-    return """# Data360 Voice: Recommended Data Retrieval Workflow
+    return """# Context Climate: Recommended Data Retrieval Workflow
 
 ## Step 1: Find Indicators
 Use `search_local_indicators` for instant offline search, or `search_indicators`
@@ -1069,7 +1069,7 @@ def search_local_metadata(query: str, limit: int = 20) -> list[dict[str, Any]]:
 ```json
 {
   "total_indicators": 28,
-  "description": "Curated list of climate and development indicators for Data360 Voice",
+  "description": "Curated list of climate and development indicators for Context Climate",
   "categories": [
     "Climate & Environment",
     "Energy",

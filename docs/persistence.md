@@ -1,6 +1,6 @@
 # Conversation Persistence Setup Guide
 
-Data360 Voice uses the [Chainlit SQLAlchemy community data layer](https://docs.chainlit.io/data-layers/sqlalchemy)
+Context Climate uses the [Chainlit SQLAlchemy community data layer](https://docs.chainlit.io/data-layers/sqlalchemy)
 to persist conversations to PostgreSQL. Once configured, users can:
 
 - Return to previous conversations from the sidebar
@@ -42,10 +42,10 @@ cp .env.example .env
 Edit `.env` and uncomment/set:
 
 ```env
-DATABASE_URL=postgresql://user:password@localhost:5432/data360voice
+DATABASE_URL=postgresql://user:password@localhost:5432/contextclimate
 ```
 
-Match the credentials to what's in `docker-compose.yml` (defaults: `user` / `password` / `data360voice`).
+Match the credentials to what's in `docker-compose.yml` (defaults: `user` / `password` / `contextclimate`).
 
 > **Note:** The `+asyncpg` protocol conversion (`postgresql://` → `postgresql+asyncpg://`) is handled
 > automatically by `app/data.py`. You do not need to add `+asyncpg` to your `.env` file.

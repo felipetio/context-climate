@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: data360voice
+      POSTGRES_DB: contextclimate
     ports:
       - "5432:5432"
     volumes:

@@ -1,23 +1,23 @@
 ---
-title: "Product Brief: Data360 Voice"
+title: "Product Brief: Context Climate"
 status: "complete"
 created: "2026-03-23"
 updated: "2026-03-23"
 inputs:
   - "_bmad-output/brainstorming/brainstorming-report.md"
   - "_bmad-output/planning-artifacts/research/domain-research-report.md"
-  - "_bmad-output/planning-artifacts/research/technical-data360-voice-stack-research-2026-03-23.md"
+  - "_bmad-output/planning-artifacts/research/technical-context-climate-stack-research-2026-03-23.md"
 ---
 
-# Product Brief: Data360 Voice
+# Product Brief: Context Climate
 
 ## Resumo Executivo
 
 Vivemos uma crise de confiança. Desinformação sobre mudanças climáticas circula mais rápido que os fatos, e os dados que poderiam combatê-la estão trancados em bancos de dados complexos, planilhas e APIs técnicas que a maioria das pessoas nunca vai acessar. O Banco Mundial mantém um dos datasets climáticos mais ricos do planeta (300M+ pontos de dados, 200+ economias, 10.000+ indicadores), mas um jornalista em deadline, um analista de política pública ou um estudante preparando uma apresentação para a COP não consegue simplesmente *fazer uma pergunta*.
 
-**Data360 Voice** muda isso. É uma ferramenta de IA conversacional que permite a qualquer pessoa consultar dados climáticos do Banco Mundial em linguagem natural e receber respostas verificadas, com fontes, que podem ser citadas e compartilhadas. Pergunte "Como a seca aumentou no Brasil na última década?" e receba uma narrativa fundamentada em dados com atribuição completa de fonte, não um dashboard ou um CSV.
+**Context Climate** muda isso. É uma ferramenta de IA conversacional que permite a qualquer pessoa consultar dados climáticos do Banco Mundial em linguagem natural e receber respostas verificadas, com fontes, que podem ser citadas e compartilhadas. Pergunte "Como a seca aumentou no Brasil na última década?" e receba uma narrativa fundamentada em dados com atribuição completa de fonte, não um dashboard ou um CSV.
 
-Construído para o Data 360 Global Challenge (Media Party + Banco Mundial, categoria Data Dialogue), o Data360 Voice é a primeira camada de dados verificados para narrativas climáticas. Cada afirmação é citável por design: a atribuição de fonte não é uma feature, é um princípio de design. Num mundo onde conteúdo gerado por IA é rotineiramente questionado, essa garantia faz do Data360 Voice uma ferramenta em que jornalistas e editores podem realmente confiar.
+Construído para o Data 360 Global Challenge (Media Party + Banco Mundial, categoria Data Dialogue), o Context Climate é a primeira camada de dados verificados para narrativas climáticas. Cada afirmação é citável por design: a atribuição de fonte não é uma feature, é um princípio de design. Num mundo onde conteúdo gerado por IA é rotineiramente questionado, essa garantia faz do Context Climate uma ferramenta em que jornalistas e editores podem realmente confiar.
 
 ## O Problema
 
@@ -32,7 +32,7 @@ O custo dessa lacuna é real: desinformação climática fica sem resposta porqu
 
 ## A Solução
 
-Data360 Voice é uma interface conversacional para dados climáticos do Banco Mundial. Usuários fazem perguntas em linguagem natural. O sistema:
+Context Climate é uma interface conversacional para dados climáticos do Banco Mundial. Usuários fazem perguntas em linguagem natural. O sistema:
 
 1. **Encontra os dados certos** usando a busca vetorial da API Data360 para mapear perguntas aos indicadores corretos
 2. **Gera narrativas contextuais** que vão além dos números, fornecendo contexto histórico, comparações e tendências
@@ -48,11 +48,11 @@ Quando nenhum indicador relevante é encontrado, o sistema diz isso de forma tra
 
 > **Usuário:** "Como a seca mudou no Brasil na última década?"
 >
-> **Data360 Voice:** "Segundo os Indicadores de Desenvolvimento do Banco Mundial, o Brasil registrou um aumento de 23% em dias consecutivos sem chuva entre 2014 e 2024, comparado a uma média global de 12%. Essa tendência se acelerou após 2019... [Fonte: WB_WDI_EN_CLC_DRHT, World Bank Data360 | Dados mais recentes: 2024]"
+> **Context Climate:** "Segundo os Indicadores de Desenvolvimento do Banco Mundial, o Brasil registrou um aumento de 23% em dias consecutivos sem chuva entre 2014 e 2024, comparado a uma média global de 12%. Essa tendência se acelerou após 2019... [Fonte: WB_WDI_EN_CLC_DRHT, World Bank Data360 | Dados mais recentes: 2024]"
 >
 > **Usuário:** "Como isso se compara a outros países da América do Sul?"
 >
-> **Data360 Voice:** [gera análise comparativa com citações individuais por país]
+> **Context Climate:** [gera análise comparativa com citações individuais por país]
 
 **Exemplo de cruzamento de dados:**
 
@@ -60,17 +60,17 @@ Quando nenhum indicador relevante é encontrado, o sistema diz isso de forma tra
 >
 > **Usuário:** "Como esses dados locais se comparam com os indicadores de seca do Banco Mundial para o Brasil?"
 >
-> **Data360 Voice:** "Seus dados mostram uma redução média de 31% na precipitação nas estações do Ceará entre 2018 e 2024. Segundo o Banco Mundial, o índice de seca nacional do Brasil aumentou 23% no mesmo período. A discrepância sugere que o Nordeste está sendo mais afetado que a média nacional... [Fonte dados oficiais: WB_WDI_EN_CLC_DRHT, World Bank Data360 | Dados do usuário: upload CSV, 12 estações]"
+> **Context Climate:** "Seus dados mostram uma redução média de 31% na precipitação nas estações do Ceará entre 2018 e 2024. Segundo o Banco Mundial, o índice de seca nacional do Brasil aumentou 23% no mesmo período. A discrepância sugere que o Nordeste está sendo mais afetado que a média nacional... [Fonte dados oficiais: WB_WDI_EN_CLC_DRHT, World Bank Data360 | Dados do usuário: upload CSV, 12 estações]"
 
 **Exemplo de verificação de fato:**
 
 > **Usuário:** "Vi no Twitter que o desmatamento no Brasil caiu 50% desde 2020. Isso é verdade?"
 >
-> **Data360 Voice:** "Segundo os dados do Banco Mundial, a área florestal do Brasil diminuiu de X para Y entre 2020 e 2024, representando uma redução de Z%. A afirmação de queda de 50% no desmatamento não é sustentada pelos indicadores disponíveis. [Fonte: WB_WDI_AG_LND_FRST_K2, World Bank Data360 | Dados mais recentes: 2023]"
+> **Context Climate:** "Segundo os dados do Banco Mundial, a área florestal do Brasil diminuiu de X para Y entre 2020 e 2024, representando uma redução de Z%. A afirmação de queda de 50% no desmatamento não é sustentada pelos indicadores disponíveis. [Fonte: WB_WDI_AG_LND_FRST_K2, World Bank Data360 | Dados mais recentes: 2023]"
 
 ## O Que Torna Isso Diferente
 
-**Cada afirmação é citável por design.** Em 2026, a alucinação de IA no jornalismo é uma crise de credibilidade. Data360 Voice resolve isso estruturalmente: citações de fonte (campos DATA_SOURCE) são extraídas diretamente da resposta da API do Banco Mundial, não geradas pelo LLM. A IA interpreta e narra, mas não pode fabricar os dados subjacentes ou sua atribuição.
+**Cada afirmação é citável por design.** Em 2026, a alucinação de IA no jornalismo é uma crise de credibilidade. Context Climate resolve isso estruturalmente: citações de fonte (campos DATA_SOURCE) são extraídas diretamente da resposta da API do Banco Mundial, não geradas pelo LLM. A IA interpreta e narra, mas não pode fabricar os dados subjacentes ou sua atribuição.
 
 - **Dados oficiais, acesso conversacional.** Não é mais um chatbot que inventa números. O LLM é restrito a narrar apenas o que a API retornou, com atribuição de fonte determinística.
 - **Verificação de fatos integrada.** Usuários podem colar afirmações climáticas e receber vereditos baseados em dados oficiais do Banco Mundial, restaurando confiança na informação.
@@ -127,7 +127,7 @@ Estudantes, ativistas e cidadãos engajados preparando apresentações, verifica
 
 ## Visão
 
-Se o Data360 Voice tiver sucesso, ele se torna a forma padrão como jornalistas e cidadãos interagem com dados de desenvolvimento, não apenas climáticos. Os 10.000+ indicadores do Banco Mundial cobrem saúde, educação, economia, governança. O mesmo padrão conversacional se aplica a todos eles.
+Se o Context Climate tiver sucesso, ele se torna a forma padrão como jornalistas e cidadãos interagem com dados de desenvolvimento, não apenas climáticos. Os 10.000+ indicadores do Banco Mundial cobrem saúde, educação, economia, governança. O mesmo padrão conversacional se aplica a todos eles.
 
 **Curto prazo (6 meses):** Ferramenta funcional para dados climáticos, aberta para jornalistas e pesquisadores. Integração com fontes de dados brasileiras (CEMADEM, CPTEC) para profundidade sub-nacional. Open-source do servidor MCP para medir adoção orgânica.
 
@@ -148,4 +148,4 @@ Se o Data360 Voice tiver sucesso, ele se torna a forma padrão como jornalistas 
 
 **Data 360 Global Challenge, Categoria Data Dialogue**
 
-O desafio pede ferramentas que restaurem a confiança na informação. Data360 Voice atende isso diretamente: cada resposta carrega sua fonte, cada afirmação pode ser verificada, e a barreira para acessar dados oficiais cai de "saber usar uma API" para "fazer uma pergunta." O modo de verificação de fatos leva isso além, permitindo que usuários confrontem desinformação climática diretamente com dados oficiais do Banco Mundial. O desafio não é apenas um deadline, é uma plataforma de lançamento que fornece credibilidade institucional, uma história de fundação e acesso ao ecossistema do Banco Mundial.
+O desafio pede ferramentas que restaurem a confiança na informação. Context Climate atende isso diretamente: cada resposta carrega sua fonte, cada afirmação pode ser verificada, e a barreira para acessar dados oficiais cai de "saber usar uma API" para "fazer uma pergunta." O modo de verificação de fatos leva isso além, permitindo que usuários confrontem desinformação climática diretamente com dados oficiais do Banco Mundial. O desafio não é apenas um deadline, é uma plataforma de lançamento que fornece credibilidade institucional, uma história de fundação e acesso ao ecossistema do Banco Mundial.

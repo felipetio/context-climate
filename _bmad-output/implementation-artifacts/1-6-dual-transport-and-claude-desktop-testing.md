@@ -31,7 +31,7 @@ so that I can test locally in Claude Desktop and deploy for web access without c
   - [x] Confirm all 5 tools reachable via HTTP transport
 
 - [x] Task 3: Claude Desktop installation and end-to-end test (AC: #2)
-  - [x] Run `uv run fastmcp install claude-desktop mcp_server/server.py --name "Data360 Voice" --with-editable .` (note: FastMCP 3.1.1 CLI changed to subcommand style; --with-editable required for local mcp_server package)
+  - [x] Run `uv run fastmcp install claude-desktop mcp_server/server.py --name "Context Climate" --with-editable .` (note: FastMCP 3.1.1 CLI changed to subcommand style; --with-editable required for local mcp_server package)
   - [x] Confirm entry appears in Claude Desktop MCP settings (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS)
   - [x] Restart Claude Desktop and verify tools listed in tool panel
   - [x] Run end-to-end query: ask Claude to search for a CO2 indicator and retrieve data for Brazil — confirm response includes `DATA_SOURCE`/`CITATION_SOURCE` field
@@ -47,7 +47,7 @@ so that I can test locally in Claude Desktop and deploy for web access without c
 All 5 tools are fully implemented in `mcp_server/server.py`. The `FastMCP` instance is:
 
 ```python
-mcp = FastMCP("data360-voice", instructions="World Bank Data360 climate and development data tools.")
+mcp = FastMCP("context-climate", instructions="World Bank Data360 climate and development data tools.")
 ```
 
 There is NO `if __name__ == "__main__"` block yet. FastMCP's CLI (`fastmcp dev`, `fastmcp install`) handles stdio mode already. HTTP transport requires either:
@@ -73,7 +73,7 @@ FastMCP 3.1.1 `mcp.run()` accepts transport values: `"stdio"`, `"streamable-http
 
 `fastmcp install mcp_server/server.py` writes a config entry to Claude Desktop's config file. On macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`. It sets up stdio transport automatically — Claude Desktop spawns the server as a subprocess per session.
 
-Optionally pass `--name "Data360 Voice"` to set a human-readable name in the UI.
+Optionally pass `--name "Context Climate"` to set a human-readable name in the UI.
 
 ### Environment Variables (all optional, have sensible defaults)
 

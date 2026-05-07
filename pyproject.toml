@@ -1,5 +1,5 @@
 [project]
-name = "data360-voice"
+name = "context-climate"
 version = "0.1.0"
 description = "Conversational AI tool for querying World Bank climate data with verified citations"
 requires-python = ">=3.12"

@@ -16,7 +16,7 @@ so that I have a working app skeleton that can be extended with Claude tool-use 
 4. `.env.example` is updated with all new variables documented with descriptions
 5. `app/main.py` exists with a FastAPI app stub and Chainlit mounted at root (`/`)
 6. `app/chat.py` exists with stub `@cl.on_chat_start` and `@cl.on_message` handlers that echo the user's message back (placeholder behavior)
-7. `.chainlit/config.toml` is committed and configures the app name (`Data360 Voice`) and disables telemetry
+7. `.chainlit/config.toml` is committed and configures the app name (`Context Climate`) and disables telemetry
 8. `tests/app/__init__.py` directory structure exists and a smoke test verifies the FastAPI app starts without errors
 
 ## Tasks / Subtasks
@@ -35,8 +35,8 @@ so that I have a working app skeleton that can be extended with Claude tool-use 
 
 - [ ] Task 3: Initialize Chainlit config (AC: #7)
   - [ ] Run `chainlit init` to generate `.chainlit/config.toml`
-  - [ ] Edit config: set `project.name = "Data360 Voice"`, `telemetry = false`
-  - [ ] Commit: `chore: add chainlit config (data360-voice, no telemetry)`
+  - [ ] Edit config: set `project.name = "Context Climate"`, `telemetry = false`
+  - [ ] Commit: `chore: add chainlit config (context-climate, no telemetry)`
 
 - [ ] Task 4: Update `.env.example` with new variables (AC: #4)
   - [ ] Add `ANTHROPIC_API_KEY`, `DATABASE_URL`, `MCP_SERVER_URL` with descriptions
@@ -78,7 +78,7 @@ settings = Settings()
 from fastapi import FastAPI
 from chainlit.utils import mount_chainlit
 
-app = FastAPI(title="Data360 Voice")
+app = FastAPI(title="Context Climate")
 mount_chainlit(app=app, target="app/chat.py", path="/")
 ```
 
@@ -89,7 +89,7 @@ import chainlit as cl
 
 @cl.on_chat_start
 async def on_chat_start():
-    await cl.Message(content="Welcome to Data360 Voice! Ask me about climate data.").send()
+    await cl.Message(content="Welcome to Context Climate! Ask me about climate data.").send()
 
 @cl.on_message
 async def on_message(message: cl.Message):
@@ -129,7 +129,7 @@ Epic 1 completed: MCP server is functional with HTTP Streamable transport at a c
 | TC5 | Chainlit UI loads | Open `http://localhost:8000` in browser | Chat UI renders without errors |
 | TC6 | Echo bot responds | Send "hello" in chat UI | Response: "[echo] hello" appears |
 | TC7 | Smoke test passes | `uv run pytest tests/app/` | All tests green |
-| TC8 | `.chainlit/config.toml` committed | `git show HEAD:.chainlit/config.toml` | File present, `name = "Data360 Voice"`, `telemetry = false` |
+| TC8 | `.chainlit/config.toml` committed | `git show HEAD:.chainlit/config.toml` | File present, `name = "Context Climate"`, `telemetry = false` |
 
 ## Dev Agent Record
 

@@ -5,7 +5,7 @@ inputDocuments:
   - product-brief-bmad.md
   - product-brief-bmad-distillate.md
   - research/domain-research-report.md
-  - research/technical-data360-voice-stack-research-2026-03-23.md
+  - research/technical-context-climate-stack-research-2026-03-23.md
   - brainstorming/brainstorming-report.md
 validationStepsCompleted:
   - step-v-01-discovery
@@ -36,7 +36,7 @@ overallStatus: 'Pass'
 - Product Brief: product-brief-bmad.md
 - Product Brief (distillate): product-brief-bmad-distillate.md
 - Research: domain-research-report.md
-- Research: technical-data360-voice-stack-research-2026-03-23.md
+- Research: technical-context-climate-stack-research-2026-03-23.md
 - Brainstorming: brainstorming-report.md
 
 ## Format Detection

@@ -1,12 +1,12 @@
 ---
-title: "Product Brief Distillate: Data360 Voice"
+title: "Product Brief Distillate: Context Climate"
 type: llm-distillate
 source: "product-brief-bmad.md"
 created: "2026-03-23"
 purpose: "Token-efficient context for downstream PRD creation"
 ---
 
-# Product Brief Distillate: Data360 Voice
+# Product Brief Distillate: Context Climate
 
 ## Rejected Ideas (with rationale)
 

@@ -5,7 +5,7 @@ Status: review
 ## Story
 
 As a developer,
-I want to initialize the Data360 Voice project with all dependencies and configuration,
+I want to initialize the Context Climate project with all dependencies and configuration,
 so that I have a working development environment to build the MCP server.
 
 ## Acceptance Criteria
@@ -53,7 +53,7 @@ so that I have a working development environment to build the MCP server.
 
 Target structure from Architecture:
 ```
-data360-voice/
+context-climate/
 ├── pyproject.toml
 ├── .env.example
 ├── .gitignore
@@ -90,7 +90,7 @@ No issues encountered during implementation.
 
 ### Completion Notes List
 
-- Initialized project with `uv init --name data360-voice`, creating pyproject.toml with Python >=3.12
+- Initialized project with `uv init --name context-climate`, creating pyproject.toml with Python >=3.12
 - Added fastmcp>=3.1.1 and httpx>=0.28.1 as dependencies, pytest>=9.0.2 as dev dependency
 - Created mcp_server/ module with config.py (env-based settings), server.py (FastMCP stub), data360_client.py (async client stub with Data360Client class)
 - Config uses os.getenv with sensible defaults: base URL, 30s timeout, 3 retries, 1.0s backoff base, 1000 page size, 5000 max records

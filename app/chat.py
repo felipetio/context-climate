@@ -282,7 +282,7 @@ async def on_chat_start():
         logger.warning("MCP auto-connect failed, continuing without tools", exc_info=True)
         await stack.aclose()
 
-    await cl.Message(content="Welcome to Data360 Voice! Ask me about World Bank climate and development data.").send()
+    await cl.Message(content="Welcome to Context Climate! Ask me about World Bank climate and development data.").send()
 
 
 @cl.on_chat_end

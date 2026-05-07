@@ -145,7 +145,7 @@ tests/
 - [Source: _bmad-output/planning-artifacts/architecture.md#Process Patterns > Retry Strategy]
 - [Source: _bmad-output/planning-artifacts/architecture.md#Format Patterns > MCP Tool Response Format]
 - [Source: _bmad-output/planning-artifacts/epics.md#Story 1.2]
-- [Source: _bmad-output/planning-artifacts/research/technical-data360-voice-stack-research-2026-03-23.md]
+- [Source: _bmad-output/planning-artifacts/research/technical-context-climate-stack-research-2026-03-23.md]
 
 ## Dev Agent Record
 

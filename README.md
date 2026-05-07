@@ -1,4 +1,4 @@
-# Data360 Voice
+# Context Climate
 
 A conversational AI tool that lets you query World Bank climate and development data using natural language, with verified citations. Powered by the [World Bank Data360 API](https://data360api.worldbank.org) and exposed as an MCP server for use with Claude Desktop or any MCP-compatible client.
 
@@ -7,7 +7,7 @@ No API keys required — Data360 is a public API.
 
 ## What It Does
 
-Data360 Voice gives Claude (or any MCP client) five tools to interact with World Bank data:
+Context Climate gives Claude (or any MCP client) five tools to interact with World Bank data:
 
 | Tool | Description |
 |---|---|
@@ -30,8 +30,8 @@ Responses from the `get_data` tool include citation fields (`DATA_SOURCE` / `CIT
 ## Installation
 
 ```bash
-git clone https://github.com/felipetio/data360-voice
-cd data360-voice
+git clone https://github.com/felipetio/context-climate
+cd context-climate
 uv sync
 ```
 
@@ -43,14 +43,14 @@ uv sync
 Run this once from the project directory:
 
 ```bash
-uv run fastmcp install claude-desktop mcp_server/server.py --name "Data360 Voice" --with-editable .
+uv run fastmcp install claude-desktop mcp_server/server.py --name "Context Climate" --with-editable .
 ```
 
 This writes the server config to Claude Desktop's config file automatically. Then:
 
 1. Restart Claude Desktop
 2. Look for the tools icon (hammer) in the chat input area
-3. You should see 5 tools listed under "Data360 Voice"
+3. You should see 5 tools listed under "Context Climate"
 
 ### Option 2 — Manual config
 
@@ -63,11 +63,11 @@ If you prefer to configure Claude Desktop manually, add the following entry to y
 ```json
 {
   "mcpServers": {
-    "Data360 Voice": {
-      "command": "/absolute/path/to/data360-voice/.venv/bin/fastmcp",
+    "Context Climate": {
+      "command": "/absolute/path/to/context-climate/.venv/bin/fastmcp",
       "args": [
         "run",
-        "/absolute/path/to/data360-voice/mcp_server/server.py"
+        "/absolute/path/to/context-climate/mcp_server/server.py"
       ],
       "env": {}
     }
@@ -75,7 +75,7 @@ If you prefer to configure Claude Desktop manually, add the following entry to y
 }
 ```
 
-Replace `/absolute/path/to/data360-voice` with the actual path on your machine. Then restart Claude Desktop.
+Replace `/absolute/path/to/context-climate` with the actual path on your machine. Then restart Claude Desktop.
 
 ### Verifying the connection
 

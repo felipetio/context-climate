@@ -33,7 +33,7 @@ async def _lifespan(server: FastMCP):
 
 
 mcp = FastMCP(
-    "data360-voice",
+    "context-climate",
     instructions="World Bank Data360 climate and development data tools.",
     lifespan=_lifespan,
 )

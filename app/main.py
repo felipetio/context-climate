@@ -33,5 +33,5 @@ async def lifespan(app: FastAPI):
             logger.info("asyncpg pool closed")
 
 
-app = FastAPI(title="Data360 Voice", lifespan=lifespan)
+app = FastAPI(title="Context Climate", lifespan=lifespan)
 mount_chainlit(app=app, target="app/chat.py", path="/")

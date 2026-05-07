@@ -1,14 +1,14 @@
 ---
 research_type: domain
 research_topic: 'World Bank Data360 API'
-research_goals: 'Understand the Data360 API capabilities for building the Data360 Voice MCP server'
+research_goals: 'Understand the Data360 API capabilities for building the Context Climate MCP server'
 stepsCompleted: [1, 2, 3, 4]
 ---
 
 # Domain Research Report: World Bank Data360 API
 
 **Date:** 2026-03-23
-**Research Focus:** API architecture, endpoints, and capabilities for Data360 Voice product
+**Research Focus:** API architecture, endpoints, and capabilities for Context Climate product
 **Base URL:** `https://data360api.worldbank.org`
 
 ## API Overview
@@ -38,7 +38,7 @@ The World Bank Data360 API (OpenAPI 3.0.1) provides access to development indica
 
 **Purpose:** Semantic/vector search for indicators using natural language.
 
-**This is the key endpoint for Data360 Voice.** Users can describe what they're looking for in plain language, and the API uses vector search to find matching indicators.
+**This is the key endpoint for Context Climate.** Users can describe what they're looking for in plain language, and the API uses vector search to find matching indicators.
 
 **Request Body:**
 ```json
@@ -154,4 +154,4 @@ AI formats response with COMMENT_TS context + DATA_SOURCE citations
 | Authentication | None required | None required |
 | Base URL | `data360api.worldbank.org` | `api.worldbank.org/v2` |
 
-**The Data360 API is strictly superior for the Data360 Voice use case**, especially due to vector search reducing the NLP-to-indicator mapping complexity.
+**The Data360 API is strictly superior for the Context Climate use case**, especially due to vector search reducing the NLP-to-indicator mapping complexity.

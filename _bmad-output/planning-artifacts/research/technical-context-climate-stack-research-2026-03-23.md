@@ -4,7 +4,7 @@ inputDocuments: []
 workflowType: 'research'
 lastStep: 1
 research_type: 'technical'
-research_topic: 'Technology stack for Data360 Voice - FastAPI + PostgreSQL + React vs alternatives'
+research_topic: 'Technology stack for Context Climate - FastAPI + PostgreSQL + React vs alternatives'
 research_goals: 'Compare proposed stack against alternatives and deep-dive into architecture, optimizing for both speed-to-prototype and production readiness'
 user_name: 'Felipe'
 date: '2026-03-23'
@@ -12,7 +12,7 @@ web_research_enabled: true
 source_verification: true
 ---
 
-# Data360 Voice: Technology Stack Technical Research
+# Context Climate: Technology Stack Technical Research
 
 **Date:** 2026-03-23
 **Author:** Felipe
@@ -22,7 +22,7 @@ source_verification: true
 
 ## Executive Summary
 
-This research evaluated the technology stack for Data360 Voice, a conversational AI tool that enables journalists, researchers, and citizens to query World Bank climate data using natural language. The initial proposal (FastAPI + PostgreSQL + React) was validated and refined, with **Chainlit replacing React** as the frontend framework, a decision that dramatically reduces development time while providing native MCP integration.
+This research evaluated the technology stack for Context Climate, a conversational AI tool that enables journalists, researchers, and citizens to query World Bank climate data using natural language. The initial proposal (FastAPI + PostgreSQL + React) was validated and refined, with **Chainlit replacing React** as the frontend framework, a decision that dramatically reduces development time while providing native MCP integration.
 
 **The recommended stack is: Chainlit + FastAPI + PostgreSQL + FastMCP 3.0 + Claude API (Haiku 4.5).**
 
@@ -54,13 +54,13 @@ This combination optimizes for both speed-to-prototype (challenge deadline) and 
 
 ## Research Overview
 
-This technical research was conducted on 2026-03-23 to evaluate the optimal technology stack for Data360 Voice, comparing the initially proposed FastAPI + PostgreSQL + React stack against alternatives. The research covered five areas: technology stack analysis, integration patterns, architectural patterns, and implementation approaches. All technical claims were verified against current web sources (2025-2026 data), with multi-source validation for critical decisions. The key pivot from the original proposal was replacing React with Chainlit after discovering its native MCP integration and built-in PostgreSQL data layer, which aligns perfectly with the project's constraints (2-person team, challenge deadline, chat-first interface).
+This technical research was conducted on 2026-03-23 to evaluate the optimal technology stack for Context Climate, comparing the initially proposed FastAPI + PostgreSQL + React stack against alternatives. The research covered five areas: technology stack analysis, integration patterns, architectural patterns, and implementation approaches. All technical claims were verified against current web sources (2025-2026 data), with multi-source validation for critical decisions. The key pivot from the original proposal was replacing React with Chainlit after discovering its native MCP integration and built-in PostgreSQL data layer, which aligns perfectly with the project's constraints (2-person team, challenge deadline, chat-first interface).
 
 ---
 
 ## Technical Research Scope Confirmation
 
-**Research Topic:** Technology stack for Data360 Voice - FastAPI + PostgreSQL + React vs alternatives
+**Research Topic:** Technology stack for Context Climate - FastAPI + PostgreSQL + React vs alternatives
 **Research Goals:** Compare proposed stack against alternatives and deep-dive into architecture, optimizing for both speed-to-prototype and production readiness
 
 **Technical Research Scope:**
@@ -95,7 +95,7 @@ _Source: [FastAPI vs Django 2025](https://capsquery.com/blog/fastapi-vs-django-i
 
 #### Backend Frameworks Comparison
 
-| Framework | Strengths | Weaknesses for Data360 Voice |
+| Framework | Strengths | Weaknesses for Context Climate |
 |-----------|-----------|------------------------------|
 | **FastAPI** | Async-native, auto OpenAPI docs, Pydantic validation, lightweight, ideal for AI workloads | No built-in admin, requires manual session management |
 | **Django** | Batteries-included, ORM, admin panel | Synchronous by default, heavier for API-first apps, overkill for this scope |
@@ -105,7 +105,7 @@ _Source: [FastAPI vs Django 2025](https://capsquery.com/blog/fastapi-vs-django-i
 
 #### Frontend Frameworks Comparison
 
-| Framework | Strengths | Weaknesses for Data360 Voice |
+| Framework | Strengths | Weaknesses for Context Climate |
 |-----------|-----------|------------------------------|
 | **React (custom)** | Full control over UI/UX, rich chart libraries (Recharts, Chart.js), shareable conversation views | More development time, must build chat UI from scratch |
 | **Chainlit** | Purpose-built for LLM chat, native MCP support, built-in streaming/markdown/code rendering, session management, Apache 2.0 license | Less UI customization, Python-only (no separate frontend), harder to build custom dashboards |
@@ -175,7 +175,7 @@ _Source: [MCP Clients Comparison 2026](https://fast.io/resources/best-mcp-client
 
 ### System Integration Overview
 
-Data360 Voice has four critical integration points:
+Context Climate has four critical integration points:
 
 ```
 User <-> Chainlit (Chat UI + MCP Client)
@@ -224,7 +224,7 @@ Claude's tool use is the core integration for converting natural language querie
 - **Streaming responses**: `client.messages.stream()` for real-time token delivery to Chainlit UI
 - **Programmatic tool calling** (beta): Claude writes code to call tools in an execution container, reducing latency for multi-tool workflows and token consumption
 
-**Tool definitions for Data360 Voice:**
+**Tool definitions for Context Climate:**
 - `search_indicators(query: str)` - Vector search on Data360 `/searchv2` endpoint
 - `get_data(indicator_id: str, country: str, year_range: str)` - Fetch values from `/data` endpoint
 - `get_metadata(indicator_id: str)` - Get indicator details from `/metadata` endpoint
@@ -293,7 +293,7 @@ PostgreSQL serves three integration roles:
 
 ### System Architecture Pattern: LLM-Centric with Orchestration
 
-Data360 Voice follows the **LLM-centric with orchestration** pattern, where Claude handles understanding and generation while an orchestration layer (FastAPI backend) decides when to call tools, retrieve data, and format responses.
+Context Climate follows the **LLM-centric with orchestration** pattern, where Claude handles understanding and generation while an orchestration layer (FastAPI backend) decides when to call tools, retrieve data, and format responses.
 
 This is the dominant pattern for conversational AI applications in 2026, as opposed to:
 - **Pure agentic** (too autonomous for a data query tool, hard to guarantee citation accuracy)
@@ -486,7 +486,7 @@ For the challenge, keep deployment minimal:
 ```python
 from fastmcp import FastMCP
 
-mcp = FastMCP("data360-voice")
+mcp = FastMCP("context-climate")
 
 @mcp.tool()
 async def search_indicators(query: str) -> dict:
@@ -499,7 +499,7 @@ mcp.run(transport="stdio")  # Phase 1: Claude Desktop
 
 FastMCP uses Python type hints and docstrings to auto-generate MCP schemas, eliminating boilerplate. The decorator-based API is Pythonic and minimal.
 
-**FastMCP 3.0 features relevant to Data360 Voice:**
+**FastMCP 3.0 features relevant to Context Climate:**
 - Component versioning
 - OpenTelemetry instrumentation (observability)
 - Multiple provider types (OpenAPI provider could wrap World Bank API directly)
@@ -549,7 +549,7 @@ _Source: [Chainlit Deploy Overview](https://docs.chainlit.io/deploy/overview), [
 
 1. **Prompt caching**: Cache system prompt + tool definitions. Cache hits cost 10% of standard input price. Saves 90% on repeated content. 5-minute cache duration (1.25x write cost) pays off after just one cache read.
 
-2. **Model selection**: Use **Haiku 4.5** for production (fast, cheap). It handles tool use well for bounded tool sets like Data360 Voice's 3 tools. Reserve Sonnet for complex multi-country comparisons.
+2. **Model selection**: Use **Haiku 4.5** for production (fast, cheap). It handles tool use well for bounded tool sets like Context Climate's 3 tools. Reserve Sonnet for complex multi-country comparisons.
 
 3. **Batch API** (post-MVP): 50% discount on tokens for async processing. Useful for pre-generating climate summaries or bulk data analysis.
 

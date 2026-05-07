@@ -98,7 +98,7 @@ reaction_on_message_received = false
 
 [UI]
 # Name of the assistant.
-name = "Data360 Voice"
+name = "Context Climate"
 
 # default_theme = "dark"
 

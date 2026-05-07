@@ -253,7 +253,7 @@ class TestDbSchemaOrdering:
 - [x] Run: `docker compose down -v && docker compose up -d`
 - [x] Wait ~3 seconds for PostgreSQL to initialize
 - [x] Verify both scripts ran: `docker compose logs postgres | grep -E "001_|002_"`
-- [x] Verify pgvector is available: `docker compose exec postgres psql -U user -d data360voice -c "SELECT extname FROM pg_extension WHERE extname = 'vector';"` — returned `vector`
+- [x] Verify pgvector is available: `docker compose exec postgres psql -U user -d contextclimate -c "SELECT extname FROM pg_extension WHERE extname = 'vector';"` — returned `vector`
 - [x] Verify tables exist: all 7 tables confirmed (users, threads, steps, elements, feedbacks, documents, document_chunks)
 - [x] Verify HNSW index: present
 - [x] This step is local verification only — no commit needed
@@ -319,10 +319,10 @@ docker compose down -v && docker compose up -d
 docker compose logs postgres | grep "running\|001_\|002_"
 
 # Verify tables
-docker compose exec postgres psql -U user -d data360voice -c "\dt"
+docker compose exec postgres psql -U user -d contextclimate -c "\dt"
 
 # Verify HNSW index
-docker compose exec postgres psql -U user -d data360voice -c "\di"
+docker compose exec postgres psql -U user -d contextclimate -c "\di"
 ```
 
 ### Anti-Patterns

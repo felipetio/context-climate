@@ -11,11 +11,11 @@ status: 'complete'
 completedAt: '2026-03-23'
 ---
 
-# Data360 Voice - Epic Breakdown
+# Context Climate - Epic Breakdown
 
 ## Overview
 
-This document provides the complete epic and story breakdown for Data360 Voice, decomposing the requirements from the PRD and Architecture into implementable stories.
+This document provides the complete epic and story breakdown for Context Climate, decomposing the requirements from the PRD and Architecture into implementable stories.
 
 ## Requirements Inventory
 
@@ -106,7 +106,7 @@ FR59: The UI can generate a verification deep link for each citation that points
 
 ### Additional Requirements
 
-- Manual project setup with uv (no starter template): `uv init data360-voice`, `uv add fastmcp chainlit fastapi uvicorn asyncpg anthropic httpx`
+- Manual project setup with uv (no starter template): `uv init context-climate`, `uv add fastmcp chainlit fastapi uvicorn asyncpg anthropic httpx`
 - 5 MCP tools mapping 1:1 with Data360 API endpoints: search_indicators, get_data, get_metadata, list_indicators, get_disaggregation
 - Dual transport from day 1: stdio (Claude Desktop dev) and HTTP Streamable (Chainlit production)
 - Auto-pagination strategy: loop in 1000 increments, hard cap at 5000 records per tool call
@@ -244,13 +244,13 @@ Users can search, retrieve, and explore World Bank Data360 climate and developme
 ### Story 1.1: Project Setup and Configuration
 
 As a developer,
-I want to initialize the Data360 Voice project with all dependencies and configuration,
+I want to initialize the Context Climate project with all dependencies and configuration,
 So that I have a working development environment to build the MCP server.
 
 **Acceptance Criteria:**
 
 **Given** a clean development environment
-**When** running `uv init data360-voice && cd data360-voice && uv add fastmcp httpx`
+**When** running `uv init context-climate && cd context-climate && uv add fastmcp httpx`
 **Then** the project is created with pyproject.toml containing all MCP server dependencies
 **And** the project structure includes `mcp_server/__init__.py`, `mcp_server/server.py`, `mcp_server/data360_client.py`, `mcp_server/config.py`
 **And** `mcp_server/config.py` contains base URL (`https://data360api.worldbank.org`), timeout settings, and pagination limits (1000 per page, 5000 cap)

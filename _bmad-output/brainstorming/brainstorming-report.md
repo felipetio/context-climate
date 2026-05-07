@@ -1,13 +1,13 @@
 ---
 stepsCompleted: [1, 2, 3, 4]
-session_topic: 'Data360 Voice - Conversational AI for World Bank Climate Data'
+session_topic: 'Context Climate - Conversational AI for World Bank Climate Data'
 session_goals: 'Define product concept, personas, MVP features, and EOI submission narrative for Data 360 Global Challenge'
 selected_approach: 'ai-recommended'
 techniques_used: ['Persona Storm', 'Feature Safari', 'Word Picture']
-ideas_generated: ['Data360 Voice product concept', 'Three user personas', 'MVP feature set', 'Product name', 'EOI word picture']
+ideas_generated: ['Context Climate product concept', 'Three user personas', 'MVP feature set', 'Product name', 'EOI word picture']
 ---
 
-# Brainstorming Session Report: Data360 Voice
+# Brainstorming Session Report: Context Climate
 
 **Date:** 2026-03-23
 **Participants:** Felipe (fullstack engineer), Gustavo (product/journalist)
@@ -16,7 +16,7 @@ ideas_generated: ['Data360 Voice product concept', 'Three user personas', 'MVP f
 
 ## Product Concept
 
-**Name:** Data360 Voice
+**Name:** Context Climate
 **One-liner:** A conversational AI tool that lets journalists and citizens query World Bank climate data using natural language.
 
 ## Session Overview
@@ -86,11 +86,11 @@ ideas_generated: ['Data360 Voice product concept', 'Three user personas', 'MVP f
 
 ## Technique 3: Word Picture - EOI Submission Narrative
 
-**Data360 Voice** is a conversational AI tool that transforms how journalists, researchers, and citizens interact with World Bank climate data. Instead of navigating complex databases and APIs, users simply ask questions in natural language: "How has drought changed in Brazil over the last decade?" or "Compare CO2 emissions across African countries."
+**Context Climate** is a conversational AI tool that transforms how journalists, researchers, and citizens interact with World Bank climate data. Instead of navigating complex databases and APIs, users simply ask questions in natural language: "How has drought changed in Brazil over the last decade?" or "Compare CO2 emissions across African countries."
 
 The tool connects directly to the World Bank Data360 API, leveraging its vector search capabilities to find the right indicators and return accurate, sourced responses. Every answer includes proper citations so journalists can quote with confidence and researchers can verify methodology.
 
-Built for the Data Dialogue category, Data360 Voice bridges the gap between rich climate datasets and the people who need them most: the storytellers, analysts, and advocates working to communicate climate reality. By making World Bank data conversational, we make it accessible, and accessible data drives better stories, better policy, and better outcomes.
+Built for the Data Dialogue category, Context Climate bridges the gap between rich climate datasets and the people who need them most: the storytellers, analysts, and advocates working to communicate climate reality. By making World Bank data conversational, we make it accessible, and accessible data drives better stories, better policy, and better outcomes.
 
 **Team:** Felipe (fullstack engineer) + Gustavo (product/journalist)
 
@@ -105,6 +105,6 @@ Built for the Data Dialogue category, Data360 Voice bridges the gap between rich
 
 ## Product Name Selection
 
-**Chosen Name:** Data360 Voice
+**Chosen Name:** Context Climate
 
 **Rationale:** Directly connects to the World Bank Data360 platform while emphasizing the conversational, voice-driven interaction model. Clear, memorable, and immediately communicates what the product does.

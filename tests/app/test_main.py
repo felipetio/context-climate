@@ -26,18 +26,18 @@ def test_fastapi_app_imports_without_error():
     from app.main import app  # intentional late import after reload
 
     assert app is not None
-    assert app.title == "Data360 Voice"
+    assert app.title == "Context Climate"
 
 
 def test_fastapi_app_has_correct_title():
-    """FastAPI app title should be 'Data360 Voice'."""
+    """FastAPI app title should be 'Context Climate'."""
     import app.main
 
     importlib.reload(app.main)
 
     from app.main import app
 
-    assert app.title == "Data360 Voice"
+    assert app.title == "Context Climate"
 
 
 def test_config_loads_with_valid_env(monkeypatch):

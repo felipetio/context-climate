@@ -31,7 +31,7 @@ uv run python -m mcp_server.server
 MCP_TRANSPORT=streamable-http uv run python -m mcp_server.server
 
 # Install to Claude Desktop
-uv run fastmcp install claude-desktop mcp_server/server.py --name "Data360 Voice" --with-editable .
+uv run fastmcp install claude-desktop mcp_server/server.py --name "Context Climate" --with-editable .
 
 # Add a dependency
 uv add <package>
