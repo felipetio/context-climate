@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-24
-last_updated: 2026-05-12  # 10-2 → review (canvas wired; ACs 1-3,6 verified live, ACs 4-5 deferred to 10-3)
+last_updated: 2026-05-12  # 10-2 reviewed (1 patch applied, decisions deferred); ready to merge once CI green
 project: bmad
 project_key: NOKEY
 tracking_system: file-system
