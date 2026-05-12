@@ -52,6 +52,31 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Dossier canvas (Epic 10)
+# ---------------------------------------------------------------------------
+
+
+async def open_dossier_canvas() -> None:
+    doc = cl.CustomElement(
+        name="Document",
+        props={"content": "", "version": 0, "phase": "investigating"},
+        display="inline",
+    )
+    await cl.ElementSidebar.set_title("Dossier")
+    await cl.ElementSidebar.set_elements([doc], key="dossier-canvas")
+    cl.user_session.set("doc", doc)
+
+
+async def update_dossier_content(content: str) -> None:
+    doc = cl.user_session.get("doc")
+    if doc is None:
+        return
+    doc.props["content"] = content
+    doc.props["version"] += 1
+    await doc.update()
+
+
+# ---------------------------------------------------------------------------
 # RAG upload helper
 # ---------------------------------------------------------------------------
 
@@ -245,6 +270,9 @@ async def on_chat_resume(thread: dict) -> None:
 
 @cl.on_chat_start
 async def on_chat_start():
+    cl.user_session.set("dossier", {"phase": "investigating", "content": "", "version": 0})
+    await open_dossier_canvas()
+
     cl.user_session.set("history", [])
     cl.user_session.set(_MCP_SESSION_KEY, None)
     cl.user_session.set(_MCP_TOOLS_KEY, [])

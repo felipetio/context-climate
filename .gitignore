@@ -42,6 +42,9 @@ htmlcov/
 .pids/
 .logs/
 
+# Chainlit runtime artifacts (per-session uploads)
+.files/
+
 # Editor
 .user.justfile
 .logs/
