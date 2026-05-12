@@ -1192,7 +1192,9 @@ So that I can verify correctness and catch regressions end-to-end.
 
 ---
 
-## Epic 9: Data Provenance & Journalist Export
+## Epic 9: Data Provenance & Journalist Export — DONE (2026-05-07)
+
+**Status:** Closed via course correction on 2026-05-07. Story 9.1 (server-side Data Sources block) is the complete deliverable and shipped. Stories 9.2 and 9.3 are cancelled — the dossier pivot (Epics 10–13) supersedes both: 9.2 is replaced by the dossier as the primary export artifact (Epic 11); 9.3's verification-link need moves to Epic 12 (dossier Methodology section). The citation pipeline built in 9.1 is reused by Epic 12. See `sprint-change-proposal-2026-05-07.md`.
 
 The server deterministically appends a "Data Sources" block to every data-bearing response, built entirely from MCP tool response metadata. The LLM writes narrative only, with zero involvement in citation or source attribution. This replaces the original marker-based approach that failed due to LLM unreliability (see `epic-9-retrospective-pre-redesign.md`). Addresses Data360 Challenge pillars 04 (Digital Passport for Facts) and 05 (Permanent Source Seals).
 
@@ -1238,7 +1240,9 @@ So that I can trust the information and trace it back to its source.
 - Update `app/chat.py` comments (no logic changes, pipeline already works)
 - Update `tests/app/test_citations.py` format assertions
 
-### Story 9.2: Copy with Data Sources
+### Story 9.2: Copy with Data Sources — CANCELLED (2026-05-07)
+
+**Status:** Cancelled. The dossier document (Epic 11) is now the primary export artifact, replacing per-message chat copying. See `sprint-change-proposal-2026-05-07.md`.
 
 As a journalist,
 I want to copy a response with its data sources preserved,
@@ -1255,7 +1259,9 @@ So that I can paste it into articles with proper attribution.
 **When** the user clicks Copy
 **Then** only the narrative text is copied
 
-### Story 9.3: Source Verification Links
+### Story 9.3: Source Verification Links — CANCELLED (2026-05-07)
+
+**Status:** Cancelled in Epic 9. Verification-link need is reassigned to Epic 12 (inline links in the dossier Methodology section), a better surface than per-message chat UI. See `sprint-change-proposal-2026-05-07.md`.
 
 As a journalist or editor,
 I want each data source to include a link to the original data,
