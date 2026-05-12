@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-24
-last_updated: 2026-05-12  # planned Story 10.5 (dossier canvas reopen affordance), added to Epic 10 backlog
+last_updated: 2026-05-12  # 10-3 ready for review (apply_ops patch engine)
 project: bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -130,7 +130,7 @@ development_status:
   epic-10: in-progress
   10-1-document-jsx-custom-element: done
   10-2-elementsidebar-canvas-integration: review
-  10-3-apply-ops-patch-engine: ready-for-dev
+  10-3-apply-ops-patch-engine: review
   10-4-dossier-system-prompt: ready-for-dev
   10-5-dossier-canvas-reopen-affordance: backlog
   epic-10-retrospective: optional
