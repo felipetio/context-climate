@@ -30,7 +30,7 @@ So that the split-panel layout is wired up and ready for content from the first 
 
 ### Task 1: Add `open_dossier_canvas()` helper to `app/chat.py` (AC: #2, #3)
 
-- [ ] Add `async def open_dossier_canvas() -> None:` near the top of `app/chat.py` (after imports, before handlers)
+- [x] Add `async def open_dossier_canvas() -> None:` near the top of `app/chat.py` (after imports, before handlers)
   - Create `cl.CustomElement(name="Document", props={"content": "", "version": 0, "phase": "investigating"}, display="inline")`
   - Call `await cl.ElementSidebar.set_title("Dossier")`
   - Call `await cl.ElementSidebar.set_elements([doc], key="dossier-canvas")`

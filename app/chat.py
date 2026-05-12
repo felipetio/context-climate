@@ -52,6 +52,22 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Dossier canvas (Epic 10)
+# ---------------------------------------------------------------------------
+
+
+async def open_dossier_canvas() -> None:
+    doc = cl.CustomElement(
+        name="Document",
+        props={"content": "", "version": 0, "phase": "investigating"},
+        display="inline",
+    )
+    await cl.ElementSidebar.set_title("Dossier")
+    await cl.ElementSidebar.set_elements([doc], key="dossier-canvas")
+    cl.user_session.set("doc", doc)
+
+
+# ---------------------------------------------------------------------------
 # RAG upload helper
 # ---------------------------------------------------------------------------
 
