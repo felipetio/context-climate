@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-24
-last_updated: 2026-05-07  # updated: Epic 9 closed via course correction (dossier pivot, Epics 10-13)
+last_updated: 2026-05-12  # story 10-1 → review (all 6 ACs verified live; react-markdown unavailable, <pre> fallback applied)
 project: bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -125,3 +125,34 @@ development_status:
   9-2-copy-with-data-sources: cancelled  # superseded by dossier export (Epic 11)
   9-3-source-verification-links: cancelled  # deferred to Epic 12 dossier Methodology section
   epic-9-retrospective: optional
+
+  # Epic 10: Journalist Dossier Shell (dossier pivot, see sprint-change-proposal-2026-05-07.md)
+  epic-10: in-progress
+  10-1-document-jsx-custom-element: review
+  10-2-elementsidebar-canvas-integration: ready-for-dev
+  10-3-apply-ops-patch-engine: ready-for-dev
+  10-4-dossier-system-prompt: ready-for-dev
+  epic-10-retrospective: optional
+
+  # Epic 11: Investigation State Machine
+  epic-11: backlog
+  11-1-investigation-session-state: backlog
+  11-2-update-investigation-item-tool: backlog
+  11-3-phase-gate-logic: backlog
+  11-4-propose-structure-tool: backlog
+  epic-11-retrospective: optional
+
+  # Epic 12: Data-Validated Investigation
+  epic-12: backlog
+  12-1-mcp-tools-in-dossier-session: backlog
+  12-2-data-validation-gate: backlog
+  12-3-citation-flow-into-dossier-sections: backlog
+  12-4-no-data-handling-in-investigation: backlog
+  epic-12-retrospective: optional
+
+  # Epic 13: Editorial Intelligence
+  epic-13: backlog
+  13-1-pauta-sugerida-callout-blocks: backlog
+  13-2-section-add-remove-via-chat: backlog
+  13-3-executive-summary-auto-generation: backlog
+  epic-13-retrospective: optional
