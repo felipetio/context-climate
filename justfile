@@ -1,6 +1,7 @@
 # Context Climate — Development Commands
 
 set dotenv-load
+set dotenv-override := true  # .env wins over inherited empty/stale shell vars (e.g. ANTHROPIC_API_KEY="" from parent CLIs)
 
 # Ports (loaded from .env via dotenv-load)
 mcp_port := env("MCP_PORT")
