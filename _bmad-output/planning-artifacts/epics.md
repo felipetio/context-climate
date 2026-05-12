@@ -104,6 +104,24 @@ FR57: The UI can render clickable/hoverable citation markers `[n]` that display 
 FR58: The UI can copy response text with citations preserved, including the reference list in a selectable format (IEEE, ABNT, APA)
 FR59: The UI can generate a verification deep link for each citation that points to the Data360 indicator page
 
+### Journalist Dossier Creation Requirements
+
+FR60: Users can create a new journalist dossier investigation by starting a new chat session (new chat = new dossier)
+FR61: The system guides journalists through an invisible 10-item investigation checklist (topic definition, geography scope, time range, target audience, data sources validation, key stats capture, narrative structure, case studies, story pitches, methodology)
+FR62: Investigation checklist state is tracked in session memory and logged at DEBUG level for developer visibility
+FR63: The system transitions from investigation phase to dossier building phase when checklist items 1-5 are complete
+FR64: At phase transition, the system generates a proposed dossier skeleton via the propose_structure tool
+FR65: The dossier follows a fixed structure (Executive Summary, thematic Parts, Case Studies, Pauta Sugerida callouts, Methodology and Sources) that the user can modify via chat
+FR66: Users can add or remove dossier sections by requesting changes in the chat conversation
+FR67: The LLM edits the dossier using surgical anchor-based patch operations (apply_ops), never outputting the full document inline in chat
+FR68: The dossier is rendered live in a right-panel canvas (cl.ElementSidebar) alongside the chat
+FR69: Users can edit the dossier directly in the canvas textarea, with edits syncing back to Python on the next message turn
+FR70: All data facts in the dossier are grounded in MCP tool calls (search_indicators, get_data) made during the investigation
+FR71: Data citations (DATA_SOURCE) from MCP tool responses flow into dossier sections with inline attribution
+FR72: The system generates "Pauta Sugerida" callout blocks from data anomalies and paradoxes detected during investigation
+FR73: The system generates an executive summary with key statistics captured during investigation
+FR74: The dossier canvas displays the current document version number for developer debugging
+
 ### Additional Requirements
 
 - Manual project setup with uv (no starter template): `uv init context-climate`, `uv add fastmcp chainlit fastapi uvicorn asyncpg anthropic httpx`
@@ -186,6 +204,21 @@ FR56: Epic 8 - DATA360_RAG_ENABLED feature flag
 FR57: Epic 9 - Interactive citation markers with tooltips
 FR58: Epic 9 - Copy-with-citations and format export (IEEE/ABNT/APA)
 FR59: Epic 9 - Source verification deep links to Data360
+FR60: Epic 10 - New chat session creates new dossier investigation
+FR61: Epic 11 - Invisible 10-item investigation checklist drives LLM interview
+FR62: Epic 11 - Investigation state tracked in session, logged at DEBUG
+FR63: Epic 11 - Phase gate transitions from interview to dossier building mode
+FR64: Epic 11 - propose_structure tool generates initial document skeleton
+FR65: Epic 11 - Fixed dossier structure, sections modifiable via chat
+FR66: Epic 13 - Section add/remove via chat commands using apply_ops delete/append ops
+FR67: Epic 10 - apply_ops patch engine for surgical document edits
+FR68: Epic 10 - ElementSidebar canvas integration (right panel)
+FR69: Epic 10 - JSX textarea user edits sync back to Python session
+FR70: Epic 12 - MCP tool calls ground all dossier data facts
+FR71: Epic 12 - DATA_SOURCE citations flow into dossier sections
+FR72: Epic 13 - Pauta Sugerida callout blocks from data anomaly detection
+FR73: Epic 13 - Executive summary auto-generated from captured key statistics
+FR74: Epic 10 - Version counter displayed in Document.jsx canvas
 
 ## Epic List
 
@@ -1250,3 +1283,439 @@ So that I can verify any data claim in one click.
 **When** clicked by the user
 **Then** it opens the Data360 indicator page in a new browser tab
 **And** the user can independently confirm the data values referenced in the AI response
+
+---
+
+## Epic 10: Journalist Dossier Shell
+
+The complete technical container for the dossier feature: Chainlit split-panel layout with a live markdown canvas on the right and chat on the left, powered by the `apply_ops` anchor-based patch protocol. No investigation intelligence yet. This epic delivers the infrastructure every subsequent epic builds on.
+
+**FRs covered:** FR60, FR67, FR68, FR69, FR74
+**NFRs addressed:** NFR1 (streaming ops updates), NFR2 (full response timing), NFR5 (API key via env var)
+**Implementation order:** After Epic 3 (citation pipeline in place); can run in parallel with Epics 4-9
+**Dependency:** `chainlit>=2.4.301` required for `cl.ElementSidebar`
+
+### Story 10.1: Document.jsx Custom Element
+
+As a journalist,
+I want a live document panel on the right side of the screen,
+So that I can see the dossier take shape as I investigate.
+
+**Acceptance Criteria:**
+
+**Given** the Chainlit app is running
+**When** the Document.jsx component is loaded
+**Then** it renders `props.content` as formatted markdown in read mode
+**And** a small version indicator shows `props.version` (for debugging)
+
+**Given** the document is in `"investigating"` phase (`props.phase === "investigating"`)
+**When** the panel loads
+**Then** it shows a placeholder: "Investigation in progress. The dossier will appear here when we have enough context."
+
+**Given** the document is in `"dossier"` phase
+**When** the user clicks the Edit button
+**Then** the view switches to an editable textarea containing the raw markdown
+
+**Given** the user edits the textarea
+**When** 400ms have passed since the last keystroke (debounce)
+**Then** `updateElement({...props, content: newContent, version: props.version + 1})` is called
+**And** the Python session receives the updated content on the next message turn
+
+**Given** the user clicks the View button from edit mode
+**When** switching back to read mode
+**Then** the markdown is re-rendered from the current textarea content
+
+**Implementation scope:**
+- Create `public/elements/Document.jsx`
+- Use shadcn `Card`, `Button`. Tailwind `prose` classes for markdown
+- React `useState` for edit/view toggle and textarea content
+- `react-markdown` for markdown rendering (verify availability in Chainlit bundle; fall back to `<pre>` if unavailable)
+- No Python changes in this story
+
+### Story 10.2: ElementSidebar Canvas Integration
+
+As a developer,
+I want the dossier canvas to open automatically in the right panel,
+So that the split-panel layout is wired up and ready for content.
+
+**Acceptance Criteria:**
+
+**Given** a new chat session starts
+**When** `@cl.on_chat_start` fires
+**Then** dossier session state is initialized in `cl.user_session`: `{"phase": "investigating", "content": "", "version": 0}`
+**And** the canvas opens immediately with `cl.ElementSidebar.set_title("Dossier")` and `cl.ElementSidebar.set_elements([doc], key="dossier-canvas")`
+**And** the Document.jsx element reference is stored in `cl.user_session["doc"]`
+
+**Given** the dossier session state exists
+**When** Python calls `update_dossier_content(new_content)`
+**Then** `doc.props["content"]` is mutated in place, `doc.props["version"]` is incremented, and `await doc.update()` is called
+
+**Given** the user edits the canvas textarea (sync-back from JSX)
+**When** the next message is sent
+**Then** `cl.user_session.get("doc").props["content"]` reflects the user's edits (no polling needed)
+
+**Implementation scope:**
+- Add `open_dossier_canvas()` and `update_dossier_content(content: str)` helpers to `app/chat.py`
+- Update `@cl.on_chat_start` to call `open_dossier_canvas()` and init `cl.user_session["dossier"]`
+- Bump `chainlit` dependency to `>=2.4.301` in `pyproject.toml`
+- No JSX changes in this story
+
+### Story 10.3: apply_ops Patch Engine
+
+As a developer,
+I want the LLM to edit the dossier via surgical patch operations,
+So that document edits are incremental, verifiable, and never produce full-doc rewrites.
+
+**Acceptance Criteria:**
+
+**Given** the LLM calls `apply_ops` with a list of ops and a summary
+**When** each op is processed
+**Then** ops are applied sequentially to the current `doc.props["content"]`
+**And** after each op, `doc.props["content"]` is updated, `doc.props["version"]` is incremented, and `await doc.update()` is called
+**And** `asyncio.sleep(0.03)` between ops gives a visible streaming effect
+
+**Given** a `replace` or `delete` op with a `find` value
+**When** the find text matches zero times in the current document
+**Then** the tool returns an error: `{"error": "Text not found: '<find>'"}`
+**And** the model must retry with more context
+
+**Given** a `replace` or `delete` op with a `find` value
+**When** the find text matches more than once
+**Then** the tool returns an error: `{"error": "Ambiguous match: '<find>' matches N times — be more specific"}`
+
+**Given** an `insert_after` or `insert_before` op
+**When** the anchor text matches exactly once
+**Then** content is inserted after or before that anchor in the document
+
+**Given** an `append` op
+**When** the document is empty or the op has no find/anchor
+**Then** content is appended to the end of the document
+
+**Given** all ops complete without error
+**When** the tool finishes
+**Then** a short `cl.Message` with the `summary` is sent to chat
+**And** the full document is never echoed in the chat stream
+
+**Tool schema (include verbatim in `apply_ops` definition):**
+```json
+{
+  "name": "apply_ops",
+  "description": "Apply a sequence of ops to the dossier document. Each op references exact existing text where applicable.",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "ops": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": {"enum": ["replace", "insert_after", "insert_before", "delete", "append", "prepend"]},
+            "find":    {"type": "string", "description": "Exact text to locate. Required for replace, delete."},
+            "anchor":  {"type": "string", "description": "Exact text to locate. Required for insert_after, insert_before."},
+            "content": {"type": "string", "description": "New text. Required for replace, insert_*, append, prepend."}
+          },
+          "required": ["type"]
+        }
+      },
+      "summary": {"type": "string", "description": "One-line explanation of what changed, shown in chat."}
+    },
+    "required": ["ops", "summary"]
+  }
+}
+```
+
+**Implementation scope:**
+- Add `apply_single_op(content: str, op: dict) -> tuple[str, str | None]` to `app/chat.py` or new `app/dossier.py`
+- Register `apply_ops` as an Anthropic tool in the dossier mode tool list
+- Add `_handle_apply_ops(tool_input: dict) -> str` to the agentic loop tool dispatch
+- No MCP server changes
+
+### Story 10.4: Dossier Phase System Prompt
+
+As a developer,
+I want phase-aware system prompts that govern LLM behavior in investigation vs. dossier modes,
+So that the LLM interviews during investigation and edits the document during dossier building.
+
+**Acceptance Criteria:**
+
+**Given** `INVESTIGATION_SYSTEM_PROMPT` in `app/prompts.py`
+**When** the session is in `"investigating"` phase
+**Then** the prompt instructs the LLM to: ask short targeted questions one at a time, never output document content inline, stay focused on understanding the journalist's topic and needs
+
+**Given** `DOSSIER_SYSTEM_PROMPT` in `app/prompts.py`
+**When** the session is in `"dossier"` phase
+**Then** the prompt instructs the LLM to: never output document content in chat, always use `apply_ops` to edit, use small surgical ops, quote anchor text exactly, use `append` when the document is empty, keep chat replies short
+
+**Given** a message turn in dossier phase
+**When** the system prompt is assembled
+**Then** the current document content is injected as a system note prefix: `"[Current document (v{version}):\n{content}\n]"`
+**And** the LLM always sees the latest document state including any user edits from the canvas
+
+**Given** `app/chat.py` `_agentic_loop()`
+**When** building the system prompt for a turn
+**Then** it selects `INVESTIGATION_SYSTEM_PROMPT` or `DOSSIER_SYSTEM_PROMPT` based on `cl.user_session.get("dossier")["phase"]`
+
+**Implementation scope:**
+- Add `INVESTIGATION_SYSTEM_PROMPT` and `DOSSIER_SYSTEM_PROMPT` constants to `app/prompts.py`
+- Update `_agentic_loop()` in `app/chat.py` to select prompt by phase and inject document content
+- Add phase-conditional tool list: dossier phase includes `apply_ops`, investigation phase does not
+- Tests: `tests/app/test_prompts.py` — verify both prompts contain key instruction phrases
+
+---
+
+## Epic 11: Investigation State Machine
+
+The app asks structured questions, tracks an invisible 10-item investigation checklist, and transitions to dossier building mode when prerequisites are met, automatically proposing a document skeleton. This is the "chat becomes a workflow" moment.
+
+**FRs covered:** FR61, FR62, FR63, FR64, FR65
+**NFRs addressed:** None
+**Implementation order:** After Epic 10
+**Dependency:** Epic 10 (ElementSidebar canvas and apply_ops must be in place)
+
+### Story 11.1: Investigation Session State
+
+As a developer,
+I want a structured investigation checklist tracked in session state,
+So that the LLM knows exactly where it is in the investigation and developers can observe progress.
+
+**Acceptance Criteria:**
+
+**Given** a new chat session starts
+**When** `@cl.on_chat_start` fires
+**Then** `cl.user_session["investigation"]` is initialized with 10 items, all `done: False`:
+  ```
+  topic_definition, geography_scope, time_range, target_audience,
+  data_sources_validation, key_stats_capture, narrative_structure,
+  case_studies, story_pitches, methodology
+  ```
+
+**Given** an investigation item is updated
+**When** `update_investigation_item(item_id, value)` is called
+**Then** `cl.user_session["investigation"][item_id] = {"done": True, "value": value}` is set
+**And** `logger.debug("[INVESTIGATION] item=%s status=complete value=%s", item_id, value)` is emitted
+
+**Given** the investigation state
+**When** the system prompt is built for a turn
+**Then** a serialized snapshot of the investigation state is included as a system note so the LLM knows which items remain
+
+### Story 11.2: update_investigation_item Tool
+
+As a developer,
+I want the LLM to call a tool to record investigation answers,
+So that state transitions are explicit and logged.
+
+**Acceptance Criteria:**
+
+**Given** the LLM has gathered enough context for an investigation item
+**When** it calls `update_investigation_item(item_id, value)`
+**Then** the item is marked done in session state
+**And** a DEBUG log line is emitted with item_id and value
+**And** the tool returns `{"status": "ok", "item": item_id, "items_done": N, "phase_gate_reached": bool}`
+
+**Given** an unknown `item_id`
+**When** the tool is called
+**Then** the tool returns `{"error": "Unknown item_id: '<id>'"}`
+
+### Story 11.3: Phase Gate Logic
+
+As a developer,
+I want the app to automatically transition to dossier mode when the investigation prerequisites are met,
+So that the document appears at the right moment without explicit user action.
+
+**Acceptance Criteria:**
+
+**Given** items 1-5 (topic_definition, geography_scope, time_range, target_audience, data_sources_validation) are all done
+**When** `update_investigation_item` is called and completes item 5
+**Then** `cl.user_session["dossier"]["phase"]` transitions to `"dossier"`
+**And** `logger.debug("[INVESTIGATION] phase_gate=reached, transitioning to dossier mode")` is emitted
+**And** `propose_structure` tool is automatically made available to the LLM on the next turn
+
+**Given** fewer than 5 prerequisite items are done
+**When** any item is updated
+**Then** the phase remains `"investigating"` and no transition occurs
+
+### Story 11.4: propose_structure Tool
+
+As a journalist,
+I want the app to propose a dossier structure when I've answered the key questions,
+So that I can start from a clear skeleton and not a blank page.
+
+**Acceptance Criteria:**
+
+**Given** the phase gate has been reached
+**When** the LLM calls `propose_structure()`
+**Then** Python generates a markdown skeleton based on the investigation state (topic, geography, angle)
+**And** the skeleton is set as `doc.props["content"]` via `update_dossier_content()`
+**And** `doc.props["phase"]` is set to `"dossier"` and `await doc.update()` is called
+**And** the tool returns `{"status": "ok", "sections": [list of section headings]}`
+
+**Given** the proposed skeleton
+**When** rendered in the canvas
+**Then** it includes at minimum: `# Executive Summary`, `## Part 1: [Topic Area]`, `## Case Studies`, `## Suggested Stories (Pautas Sugeridas)`, `## Methodology and Sources`
+**And** the section titles reflect the journalist's topic from `topic_definition`
+
+**Given** the journalist wants to change the structure
+**When** they type "remove Case Studies section" or "add a section about X"
+**Then** the LLM uses `apply_ops` (delete or insert) to modify the structure
+**And** no new tool call is needed — `apply_ops` handles all structural changes after skeleton creation
+
+---
+
+## Epic 12: Data-Validated Investigation
+
+All data facts in the dossier are grounded in real MCP tool calls made during the investigation. The LLM calls `search_indicators` and `get_data` at the data validation gate (checklist item 5), and `DATA_SOURCE` citations flow automatically into document sections.
+
+**FRs covered:** FR70, FR71
+**NFRs addressed:** NFR9 (graceful API failure in investigation context)
+**Implementation order:** After Epic 11
+**Dependency:** Epic 11 (investigation state machine) and existing MCP tools (Epic 1)
+
+### Story 12.1: MCP Tools in Dossier Session
+
+As a developer,
+I want the existing MCP tools to be callable during the dossier investigation,
+So that the LLM can validate real data before building the document.
+
+**Acceptance Criteria:**
+
+**Given** the dossier investigation is in progress
+**When** the LLM needs to look up indicators or retrieve data
+**Then** all existing MCP tools (`search_indicators`, `get_data`, `get_metadata`, `list_indicators`, `get_disaggregation`) are available in the dossier session tool list
+**And** tool call results are collected in `all_tool_outputs` the same way as the existing agentic loop
+
+### Story 12.2: Data Validation Gate
+
+As a journalist,
+I want the app to verify that data exists for my topic before building the dossier,
+So that I don't end up with empty sections.
+
+**Acceptance Criteria:**
+
+**Given** the investigation reaches item 5 (data_sources_validation)
+**When** the LLM calls `search_indicators` with the journalist's topic and geography
+**Then** results are shown in chat as a brief summary ("Found 12 relevant indicators for water access in Pará")
+**And** the item is only marked done if at least one relevant indicator is found
+**And** if no indicators found, the LLM reports this clearly and asks the journalist to refine the topic
+
+**Given** the LLM calls `get_data` on a found indicator during investigation
+**When** data is returned
+**Then** key statistics (values, years, geography) are captured in `cl.user_session["investigation"]["key_stats_capture"]["value"]`
+
+### Story 12.3: Citation Flow into Dossier Sections
+
+As a journalist,
+I want every data claim in my dossier to have an inline citation,
+So that each fact is traceable to its source.
+
+**Acceptance Criteria:**
+
+**Given** the LLM uses `apply_ops` to add a data claim to the document
+**When** the data came from a `get_data` MCP tool call in the same session
+**Then** the LLM includes the `DATA_SOURCE` value inline in the inserted content (e.g., "Water stress risk in 129 municipalities (World Development Indicators, WB_WDI_EG_ELC_ACCS_ZS, 2022)")
+
+**Given** the dossier session completes
+**When** `format_reference_list` is called on collected tool outputs
+**Then** a "Data Sources" section is appended to the dossier document (same pipeline as existing Story 9.1)
+
+### Story 12.4: No-Data Handling in Investigation
+
+As a journalist,
+I want clear feedback when data is not available for my topic,
+So that I can adjust my angle rather than discovering gaps after the dossier is built.
+
+**Acceptance Criteria:**
+
+**Given** `search_indicators` returns no results for the journalist's query
+**When** this happens during the data validation gate (item 5)
+**Then** the LLM reports: "No indicators found for [topic] in [geography]. Try broader terms or a different geography."
+**And** item 5 is not marked done until data is confirmed
+
+**Given** `get_data` returns an empty result for a found indicator
+**When** this occurs during investigation
+**Then** the LLM explicitly notes: "No data available for [indicator] in [geography/year range]"
+**And** the empty indicator is not included in the dossier structure
+
+---
+
+## Epic 13: Editorial Intelligence
+
+The dossier generates "Pauta Sugerida" story pitches from data anomalies detected during investigation, produces an executive summary from captured key stats, and allows users to add or remove sections via chat. This is the editorial layer that makes the dossier valuable to journalists, not just a data dump.
+
+**FRs covered:** FR66, FR72, FR73
+**NFRs addressed:** None
+**Implementation order:** After Epic 12
+**Dependency:** Epic 12 (data-validated investigation) — story pitches require real data anomalies
+
+### Story 13.1: Pauta Sugerida Callout Blocks
+
+As a journalist,
+I want the dossier to highlight data anomalies as suggested story angles,
+So that I can turn raw data into editorial ideas.
+
+**Acceptance Criteria:**
+
+**Given** the investigation data reveals a paradox or anomaly (e.g., high GDP but low sanitation coverage)
+**When** the LLM builds the dossier
+**Then** it uses `apply_ops` to insert a Pauta Sugerida callout block near the relevant data section:
+  ```markdown
+  > **PAUTA SUGERIDA** — [Angle headline]. [1-2 sentences explaining the anomaly and why it matters.]
+  ```
+
+**Given** the dossier structure
+**When** rendered in the canvas
+**Then** Pauta Sugerida blocks appear as blockquotes immediately after the data they reference
+
+**Given** no anomalies are detected in the data
+**When** building the dossier
+**Then** no forced Pauta Sugerida blocks are inserted (quality over quantity)
+
+### Story 13.2: Section Add/Remove via Chat
+
+As a journalist,
+I want to add or remove dossier sections by asking in the chat,
+So that I can customize the structure without a separate UI.
+
+**Acceptance Criteria:**
+
+**Given** the journalist types "remove the Case Studies section"
+**When** the LLM processes this
+**Then** it calls `apply_ops` with a `delete` op targeting the Case Studies heading and its content
+**And** the section disappears from the canvas
+
+**Given** the journalist types "add a section about water-borne disease risks after Part 1"
+**When** the LLM processes this
+**Then** it calls `apply_ops` with an `insert_after` op anchored to the last line of Part 1
+**And** the new section heading appears in the canvas
+
+**Given** the delete op find text spans a section with subsections
+**When** the section is long
+**Then** the LLM uses the section heading as the find anchor and deletes from heading to the next `##` heading (explicit content boundary in the op)
+
+### Story 13.3: Executive Summary Auto-generation
+
+As a journalist,
+I want the dossier to open with an executive summary of the key statistics,
+So that readers get the headline findings before the detailed analysis.
+
+**Acceptance Criteria:**
+
+**Given** key statistics have been captured during investigation (item 6 complete)
+**When** `propose_structure` generates the skeleton (Story 11.4)
+**Then** the `# Executive Summary` section is pre-populated with 3-5 key stats in the format:
+  ```markdown
+  # Executive Summary
+  [One paragraph narrative summary.]
+
+  | Stat | Value |
+  |------|-------|
+  | [Metric] | [Value] |
+  ```
+
+**Given** the journalist asks "update the executive summary"
+**When** new data has been retrieved in the session
+**Then** the LLM calls `apply_ops` with `replace` ops to update the summary stats
+
+**Given** insufficient key stats were captured (fewer than 3)
+**When** the skeleton is generated
+**Then** the executive summary section contains a placeholder: "[Add key statistics here]"
+**And** the LLM prompts the journalist: "I need a few more data points to fill the executive summary. Want me to search for [suggested indicators]?"
