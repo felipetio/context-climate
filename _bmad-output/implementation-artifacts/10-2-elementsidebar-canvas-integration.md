@@ -46,10 +46,10 @@ So that the split-panel layout is wired up and ready for content from the first 
 
 ### Task 3: Update `@cl.on_chat_start` to initialize dossier state (AC: #1, #2)
 
-- [ ] In `@cl.on_chat_start`, add before existing initialization:
+- [x] In `@cl.on_chat_start`, add before existing initialization:
   - `cl.user_session.set("dossier", {"phase": "investigating", "content": "", "version": 0})`
   - `await open_dossier_canvas()`
-- [ ] Keep all existing session initialization (`history`, etc.) unchanged
+- [x] Keep all existing session initialization (`history`, etc.) unchanged
 
 ### Task 4: Bump chainlit version constraint (AC: #6)
 

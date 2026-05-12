@@ -270,6 +270,9 @@ async def on_chat_resume(thread: dict) -> None:
 
 @cl.on_chat_start
 async def on_chat_start():
+    cl.user_session.set("dossier", {"phase": "investigating", "content": "", "version": 0})
+    await open_dossier_canvas()
+
     cl.user_session.set("history", [])
     cl.user_session.set(_MCP_SESSION_KEY, None)
     cl.user_session.set(_MCP_TOOLS_KEY, [])
