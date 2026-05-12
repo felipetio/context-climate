@@ -441,7 +441,12 @@ class TestMcpToolUse:
             incoming.content = "search GDP"
             await reload_chat.on_message(incoming)
 
-        assert captured_call_kwargs.get("tools") == tools
+        # apply_ops is always registered locally (Story 10.3), so the tools
+        # list passed to Claude is MCP tools + apply_ops.
+        passed_tools = captured_call_kwargs.get("tools") or []
+        passed_names = [t["name"] for t in passed_tools]
+        assert "search_indicators" in passed_names
+        assert "apply_ops" in passed_names
 
     async def test_configurable_model_used_in_api_call(self, reload_chat):
         """The model from settings.claude_model is used in the Claude API call."""
@@ -493,8 +498,8 @@ class TestMcpToolUse:
 
         assert captured_call_kwargs["max_tokens"] == 8192
 
-    async def test_no_tools_passed_when_mcp_not_connected(self, reload_chat):
-        """When no MCP tools available, Claude is called without 'tools' parameter."""
+    async def test_apply_ops_registered_when_mcp_not_connected(self, reload_chat):
+        """Even when MCP is unavailable, the local apply_ops tool is registered (Story 10.3)."""
         msg_mock = _make_fake_cl_message()
         captured_call_kwargs = {}
 
@@ -511,7 +516,9 @@ class TestMcpToolUse:
             incoming.content = "hello"
             await reload_chat.on_message(incoming)
 
-        assert "tools" not in captured_call_kwargs
+        passed_tools = captured_call_kwargs.get("tools") or []
+        passed_names = [t["name"] for t in passed_tools]
+        assert passed_names == ["apply_ops"]
 
     async def test_tool_use_loop_calls_mcp_and_sends_result_back(self, reload_chat):
         """When Claude returns tool_use, MCP is called and result fed back to Claude."""

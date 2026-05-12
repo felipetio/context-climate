@@ -77,6 +77,137 @@ async def update_dossier_content(content: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# apply_ops patch engine (Story 10.3)
+# ---------------------------------------------------------------------------
+
+
+APPLY_OPS_TOOL: dict[str, Any] = {
+    "name": "apply_ops",
+    "description": (
+        "Apply a sequence of ops to the dossier document. "
+        "Each op references exact existing text where applicable. "
+        "Use small, surgical ops. Quote anchor text exactly as it appears."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "ops": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "enum": [
+                                "replace",
+                                "insert_after",
+                                "insert_before",
+                                "delete",
+                                "append",
+                                "prepend",
+                            ]
+                        },
+                        "find": {
+                            "type": "string",
+                            "description": ("Exact text to locate. Required for replace, delete."),
+                        },
+                        "anchor": {
+                            "type": "string",
+                            "description": ("Exact text to locate. Required for insert_after, insert_before."),
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": ("New text. Required for replace, insert_*, append, prepend."),
+                        },
+                    },
+                    "required": ["type"],
+                },
+            },
+            "summary": {
+                "type": "string",
+                "description": "One-line explanation of what changed, shown in chat.",
+            },
+        },
+        "required": ["ops", "summary"],
+    },
+}
+
+
+def apply_single_op(content: str, op: dict) -> tuple[str, str | None]:
+    """Apply a single op to `content` and return `(new_content, error | None)`.
+
+    Pure string transform — no Chainlit session access so it can be unit-tested.
+    On error, returns the input content unchanged plus an error message.
+    """
+    op_type = op["type"]
+
+    if op_type in ("replace", "delete"):
+        find = op.get("find", "")
+        count = content.count(find)
+        if count == 0:
+            return content, f"Text not found: '{find}'"
+        if count > 1:
+            return content, f"Ambiguous match for '{find}' — found {count} times, be more specific"
+        if op_type == "replace":
+            return content.replace(find, op.get("content", ""), 1), None
+        return content.replace(find, "", 1), None
+
+    if op_type in ("insert_after", "insert_before"):
+        anchor = op.get("anchor", "")
+        count = content.count(anchor)
+        if count == 0:
+            return content, f"Anchor not found: '{anchor}'"
+        if count > 1:
+            return content, f"Ambiguous anchor '{anchor}' — found {count} times, be more specific"
+        new_text = op.get("content", "")
+        if op_type == "insert_after":
+            return content.replace(anchor, anchor + "\n\n" + new_text, 1), None
+        return content.replace(anchor, new_text + "\n\n" + anchor, 1), None
+
+    if op_type == "append":
+        new_text = op.get("content", "")
+        return (content + "\n\n" + new_text).strip(), None
+
+    if op_type == "prepend":
+        new_text = op.get("content", "")
+        return (new_text + "\n\n" + content).strip(), None
+
+    return content, f"Unknown op type: '{op_type}'"
+
+
+async def _handle_apply_ops(tool_input: dict) -> str:
+    """Apply a list of ops to the dossier document, streaming updates per-op.
+
+    Returns "ok" on success, or an error string on the first op that fails.
+    """
+    doc = cl.user_session.get("doc")
+    if doc is None:
+        return "Error: dossier canvas is not open"
+
+    current_content: str = doc.props.get("content", "")
+    ops: list[dict] = tool_input.get("ops", [])
+
+    for op in ops:
+        new_content, err = apply_single_op(current_content, op)
+        if err is not None:
+            return err
+        current_content = new_content
+        doc.props["content"] = current_content
+        doc.props["version"] = int(doc.props.get("version", 0)) + 1
+        await doc.update()
+        await asyncio.sleep(0.03)
+
+    dossier = cl.user_session.get("dossier")
+    if isinstance(dossier, dict):
+        dossier["content"] = current_content
+        dossier["version"] = doc.props.get("version", 0)
+
+    summary = tool_input.get("summary", "")
+    if summary:
+        await cl.Message(content=summary).send()
+    return "ok"
+
+
+# ---------------------------------------------------------------------------
 # RAG upload helper
 # ---------------------------------------------------------------------------
 
@@ -404,8 +535,10 @@ async def _agentic_loop(
             staleness_threshold_years=settings.staleness_threshold_years,
         ),
     }
-    if tools:
-        call_kwargs["tools"] = tools
+    # Always register the local apply_ops tool alongside MCP tools.
+    # Story 10.4 will gate it on dossier phase via the system prompt.
+    combined_tools = list(tools) + [APPLY_OPS_TOOL]
+    call_kwargs["tools"] = combined_tools
 
     max_rounds = settings.max_tool_rounds
     tool_round = 0
@@ -469,7 +602,13 @@ async def _agentic_loop(
             async with cl.Step(name=f"🔧 {tool_name}", type="tool") as step:
                 step.input = json.dumps(tool_input, indent=2)
 
-                if mcp_session is not None:
+                if tool_name == "apply_ops":
+                    try:
+                        tool_output = await _handle_apply_ops(tool_input)
+                    except Exception as exc:
+                        logger.error("apply_ops failed: %s", exc)
+                        tool_output = f"Error applying ops: {exc}"
+                elif mcp_session is not None:
                     try:
                         call_result = await mcp_session.call_tool(tool_name, arguments=tool_input)
                         tool_output = _extract_tool_result_text(call_result)

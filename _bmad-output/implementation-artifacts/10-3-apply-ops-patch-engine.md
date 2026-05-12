@@ -1,6 +1,6 @@
 # Story 10.3: apply_ops Patch Engine
 
-Status: ready
+Status: review
 
 ## Story
 
@@ -36,45 +36,45 @@ So that document edits are incremental, verifiable, and never produce full-doc r
 
 ### Task 1: Implement `apply_single_op(content, op)` in `app/chat.py` (AC: #2, #3, #4, #5, #6, #7)
 
-- [ ] Add `def apply_single_op(content: str, op: dict) -> tuple[str, str | None]:` (returns `(new_content, error_msg | None)`)
-- [ ] Implement each op type:
+- [x] Add `def apply_single_op(content: str, op: dict) -> tuple[str, str | None]:` (returns `(new_content, error_msg | None)`)
+- [x] Implement each op type:
   - `replace`: find exact match (count occurrences); if 0 → error; if >1 → error; else `content.replace(find, op["content"], 1)`
   - `delete`: same match logic as replace; if exact 1 → `content.replace(find, "", 1)`
   - `insert_after`: find anchor, count occurrences; if exact 1 → insert `op["content"]` after first occurrence
   - `insert_before`: same but insert before
   - `append`: `content + "\n\n" + op["content"]`
   - `prepend`: `op["content"] + "\n\n" + content`
-- [ ] Return `(new_content, None)` on success, `(content, error_msg)` on failure (content unchanged on error)
+- [x] Return `(new_content, None)` on success, `(content, error_msg)` on failure (content unchanged on error)
 
 ### Task 2: Implement `_handle_apply_ops(tool_input)` in `app/chat.py` (AC: #1, #2, #8)
 
-- [ ] Add `async def _handle_apply_ops(tool_input: dict) -> str:` to handle the full ops list
-- [ ] Get `doc = cl.user_session.get("doc")` and `current_content = doc.props["content"]`
-- [ ] Loop over `tool_input["ops"]`:
+- [x] Add `async def _handle_apply_ops(tool_input: dict) -> str:` to handle the full ops list
+- [x] Get `doc = cl.user_session.get("doc")` and `current_content = doc.props["content"]`
+- [x] Loop over `tool_input["ops"]`:
   - Call `apply_single_op(current_content, op)`
   - On error: return the error string immediately (stop processing remaining ops)
   - On success: update `current_content`, update `doc.props["content"]`, `doc.props["version"] += 1`, `await doc.update()`, `await asyncio.sleep(0.03)`
-- [ ] On success: `await cl.Message(content=tool_input["summary"]).send()`; return `"ok"`
-- [ ] Also sync back to `cl.user_session["dossier"]["content"]` after all ops
+- [x] On success: `await cl.Message(content=tool_input["summary"]).send()`; return `"ok"`
+- [x] Also sync back to `cl.user_session["dossier"]["content"]` after all ops
 
 ### Task 3: Register `apply_ops` tool in the dossier tool list (AC: #9)
 
-- [ ] Add `APPLY_OPS_TOOL` dict constant in `app/chat.py` (or `app/prompts.py`) with the schema from Dev Notes
-- [ ] Add it to the tools list used by the agentic loop when phase is `"dossier"` (Story 10.4 handles phase-gating, but register the tool definition here)
+- [x] Add `APPLY_OPS_TOOL` dict constant in `app/chat.py` (or `app/prompts.py`) with the schema from Dev Notes
+- [x] Add it to the tools list used by the agentic loop when phase is `"dossier"` (Story 10.4 handles phase-gating, but register the tool definition here)
 
 ### Task 4: Wire `apply_ops` into the agentic loop tool dispatch (AC: #1, #8)
 
-- [ ] In `_agentic_loop()`, in the tool dispatch block, add:
+- [x] In `_agentic_loop()`, in the tool dispatch block, add:
   ```python
   if tool_use.name == "apply_ops":
       tool_result = await _handle_apply_ops(tool_use.input)
   ```
-- [ ] Tool result is returned to the model as a `tool_result` message block (same pattern as existing MCP tools)
+- [x] Tool result is returned to the model as a `tool_result` message block (same pattern as existing MCP tools)
 
 ### Task 5: Tests (AC: #3, #4, #5, #6, #7)
 
-- [ ] Create `tests/app/test_apply_ops.py`
-- [ ] Test `apply_single_op` for each op type:
+- [x] Create `tests/app/test_apply_ops.py`
+- [x] Test `apply_single_op` for each op type:
   - `replace` success: exact match replaced
   - `replace` not found: returns error tuple
   - `replace` ambiguous: returns error tuple with count
@@ -84,12 +84,12 @@ So that document edits are incremental, verifiable, and never produce full-doc r
   - `append` on empty doc
   - `append` on non-empty doc
   - `prepend`
-- [ ] No mocking of Chainlit session — test `apply_single_op` as a pure function
+- [x] No mocking of Chainlit session — test `apply_single_op` as a pure function
 
 ### Task 6: Run full test suite and linter (AC: all)
 
-- [ ] `uv run pytest -v` — zero failures
-- [ ] `uv run ruff check . && uv run ruff format .` — clean
+- [x] `uv run pytest -v` — zero failures (322 passed)
+- [x] `uv run ruff check . && uv run ruff format .` — clean
 
 ---
 
@@ -232,12 +232,25 @@ The `asyncio.sleep(0.03)` between ops is intentional. It allows the canvas to vi
 
 ### Agent Model Used
 
-_To be filled on implementation_
+Claude Opus 4.7 (1M context) via Claude Code (`/bmad-dev-story 10.3`)
 
 ### Completion Notes
 
-_To be filled on implementation_
+- Implemented `apply_single_op` as a pure string transform in `app/chat.py` — no Chainlit session access — so it can be unit-tested in isolation.
+- Implemented `_handle_apply_ops` to drive the ops list, update `doc.props["content"]`/`version` after each op, `await doc.update()`, and `await asyncio.sleep(0.03)` between ops for the streaming feel (AC2). The full document is never echoed inline; only `summary` is sent via `cl.Message` after all ops succeed (AC8).
+- On op failure, returns the error string immediately and stops applying further ops (AC3, AC4) — the error flows back to the LLM as the `tool_result` so it can retry with better anchors.
+- Registered `APPLY_OPS_TOOL` constant matching the Dev Notes schema verbatim (AC9) and combined it with MCP tools inside `_agentic_loop`; `apply_ops` is now always available regardless of MCP connectivity (phase gating is deferred to Story 10.4).
+- Updated two `test_chat.py` assertions that previously expected the absence of `tools` when no MCP tools were available — now that `apply_ops` is always registered locally, the tests assert its presence instead.
+- Added 19 unit tests in `tests/app/test_apply_ops.py` covering each op type, error paths (not found / ambiguous), the unknown-op fallback, and schema shape.
 
 ### File List
 
-_To be filled on implementation_
+- `app/chat.py` — added `APPLY_OPS_TOOL`, `apply_single_op`, `_handle_apply_ops`; wired apply_ops dispatch in `_agentic_loop`; always-register tool list
+- `tests/app/test_apply_ops.py` — new test file (19 tests)
+- `tests/app/test_chat.py` — updated two MCP tool-registration tests to account for always-on `apply_ops`
+- `_bmad-output/implementation-artifacts/10-3-apply-ops-patch-engine.md` — task checkboxes, status, Dev Agent Record
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — story status updated to `review`
+
+### Change Log
+
+- 2026-05-12 — Implemented apply_ops patch engine and registered it as a local tool in the agentic loop; updated test_chat.py to expect the new always-on tool registration.
