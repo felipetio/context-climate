@@ -38,7 +38,7 @@ So that the split-panel layout is wired up and ready for content from the first 
 
 ### Task 2: Add `update_dossier_content()` helper to `app/chat.py` (AC: #4)
 
-- [ ] Add `async def update_dossier_content(content: str) -> None:` below `open_dossier_canvas()`
+- [x] Add `async def update_dossier_content(content: str) -> None:` below `open_dossier_canvas()`
   - `doc = cl.user_session.get("doc")`
   - `doc.props["content"] = content`
   - `doc.props["version"] += 1`

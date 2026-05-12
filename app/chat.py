@@ -67,6 +67,15 @@ async def open_dossier_canvas() -> None:
     cl.user_session.set("doc", doc)
 
 
+async def update_dossier_content(content: str) -> None:
+    doc = cl.user_session.get("doc")
+    if doc is None:
+        return
+    doc.props["content"] = content
+    doc.props["version"] += 1
+    await doc.update()
+
+
 # ---------------------------------------------------------------------------
 # RAG upload helper
 # ---------------------------------------------------------------------------
