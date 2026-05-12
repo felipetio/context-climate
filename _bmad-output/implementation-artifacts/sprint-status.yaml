@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-24
-last_updated: 2026-05-12  # story 10-1 → review (all 6 ACs verified live; react-markdown unavailable, <pre> fallback applied)
+last_updated: 2026-05-12  # 10-1 merged (PR #51), 10-2 in-progress
 project: bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -128,8 +128,8 @@ development_status:
 
   # Epic 10: Journalist Dossier Shell (dossier pivot, see sprint-change-proposal-2026-05-07.md)
   epic-10: in-progress
-  10-1-document-jsx-custom-element: review
-  10-2-elementsidebar-canvas-integration: ready-for-dev
+  10-1-document-jsx-custom-element: done
+  10-2-elementsidebar-canvas-integration: in-progress
   10-3-apply-ops-patch-engine: ready-for-dev
   10-4-dossier-system-prompt: ready-for-dev
   epic-10-retrospective: optional

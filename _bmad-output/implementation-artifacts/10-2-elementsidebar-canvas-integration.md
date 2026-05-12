@@ -1,6 +1,6 @@
 # Story 10.2: ElementSidebar Canvas Integration
 
-Status: ready
+Status: in-progress
 
 ## Story
 
