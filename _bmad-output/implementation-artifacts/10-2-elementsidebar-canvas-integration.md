@@ -58,6 +58,18 @@ So that the split-panel layout is wired up and ready for content from the first 
 
 **No change required.** `pyproject.toml` already pins `chainlit>=2.10.0`, well above the story's required `>=2.4.301`. Installed runtime is `chainlit 2.10.0` and `from chainlit import ElementSidebar` imports cleanly. AC6 satisfied without a code change.
 
+### Review Findings (2026-05-12)
+
+Adversarial code review with Blind Hunter + Edge Case Hunter + Acceptance Auditor. Acceptance Auditor reported the diff fully satisfies the spec.
+
+- [ ] [Review][Decision] **on_chat_resume does not re-initialize the dossier canvas** [app/chat.py:223-268] — Spec is silent on resume. Resumed threads have no `cl.user_session["doc"]`, so `update_dossier_content()` silently no-ops and the right panel never opens. Options: (a) wire `open_dossier_canvas()` + dossier seed into `on_chat_resume` now; (b) defer to a follow-up issue / Story 10.3. _Severity: High._
+- [ ] [Review][Decision] **`open_dossier_canvas()` failure crashes `on_chat_start`** [app/chat.py:274] — Unlike the MCP auto-connect block below it, the canvas open isn't wrapped in `try/except`. If `cl.ElementSidebar` ever errors (API drift, transport hiccup), the entire `on_chat_start` aborts before `history`/MCP keys are seeded — `on_message` then reads `None`. Options: (a) wrap in `try/except` mirroring the MCP pattern (degrade gracefully, no canvas but chat still works); (b) leave it fatal because the canvas is core to Epic 10. _Severity: Med._
+- [x] [Review][Patch] **CI failure — `cl.CustomElement(...)` raises `ChainlitContextException` in `TestMcpAutoConnect`** [tests/app/test_chat.py — class `TestMcpAutoConnect`] — Both `test_on_chat_start_auto_connects_mcp` and `test_on_chat_start_auto_connect_failure_graceful` patch `cl.user_session` and `cl.Message` but the new `await open_dossier_canvas()` instantiates a real `cl.CustomElement`, which requires an active Chainlit request context. **Fixed:** added `patch("app.chat.open_dossier_canvas", new=AsyncMock())` to both `with` blocks — minimum-surface mock, no coupling to Chainlit internals. 303/303 pass locally. _Severity: High._
+- [x] [Review][Defer] **`user_session["dossier"]` dict vs `doc.props` drift** [app/chat.py:75, 273] — `update_dossier_content` only mutates `doc.props`; the `"dossier"` dict in session is seeded but never updated. Will become a real bug when Story 10.3 reads from `user_session["dossier"]` and finds stale `content`/`version`. _Severity: Med, deferred to 10.3._
+- [x] [Review][Defer] **Silent no-op in `update_dossier_content` masks programmer error** [app/chat.py:71-73] — Add a `logger.warning("update_dossier_content called with no active doc")` so the resume-path bug above surfaces in logs. _Severity: Med, deferred — folds naturally into the resume-path fix._
+- [x] [Review][Defer] **`doc.props["version"] += 1` is fragile** [app/chat.py:75] — Raises `KeyError`/`TypeError` if JSX sync-back ever omits `version` or returns it as a string. Use `props.get("version", 0) + 1` defensively. _Severity: Low, deferred — exercised by 10.3._
+- [x] [Review][Defer] **`open_dossier_canvas()` is not idempotent** [app/chat.py:58-67] — Calling it twice (e.g. via future resume path) creates a second `CustomElement` and overwrites `user_session["doc"]`, orphaning the first. _Severity: Low, deferred — depends on resume decision above._
+
 ### Task 5: Manual verification (AC: all)
 
 - [x] Run `chainlit run app/chat.py -w`

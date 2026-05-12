@@ -1293,6 +1293,7 @@ class TestMcpAutoConnect:
             patch("app.chat.ClientSession", return_value=fake_session),
             patch("app.chat.cl.user_session") as session_mock,
             patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.open_dossier_canvas", new=AsyncMock()),
         ):
             session_mock.set.side_effect = lambda k, v: stored.update({k: v})
             # Make ClientSession work as async context manager
@@ -1321,6 +1322,7 @@ class TestMcpAutoConnect:
             patch("app.chat.streamablehttp_client", failing_client),
             patch("app.chat.cl.user_session") as session_mock,
             patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.open_dossier_canvas", new=AsyncMock()),
         ):
             session_mock.set.side_effect = lambda k, v: stored.update({k: v})
 
