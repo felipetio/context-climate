@@ -53,8 +53,10 @@ So that the split-panel layout is wired up and ready for content from the first 
 
 ### Task 4: Bump chainlit version constraint (AC: #6)
 
-- [ ] In `pyproject.toml`, update chainlit dependency to `chainlit>=2.4.301`
-- [ ] Run `uv lock` to update the lock file
+- [x] In `pyproject.toml`, update chainlit dependency to `chainlit>=2.4.301`
+- [x] Run `uv lock` to update the lock file
+
+**No change required.** `pyproject.toml` already pins `chainlit>=2.10.0`, well above the story's required `>=2.4.301`. Installed runtime is `chainlit 2.10.0` and `from chainlit import ElementSidebar` imports cleanly. AC6 satisfied without a code change.
 
 ### Task 5: Manual verification (AC: all)
 
