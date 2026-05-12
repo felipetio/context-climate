@@ -1461,6 +1461,63 @@ So that the LLM interviews during investigation and edits the document during do
 - Add phase-conditional tool list: dossier phase includes `apply_ops`, investigation phase does not
 - Tests: `tests/app/test_prompts.py` — verify both prompts contain key instruction phrases
 
+### Story 10.5: Dossier Canvas Reopen Affordance
+
+As a journalist,
+I want a way to bring the dossier panel back after I close it,
+So that I can keep working without restarting the chat session when I dismissed the canvas by accident or on purpose.
+
+**Acceptance Criteria:**
+
+**AC1: Reopen helper is idempotent and resume-safe.**
+**Given** an active chat session
+**When** `reopen_dossier_canvas()` is called in `app/chat.py`
+**Then** if `cl.user_session.get("doc")` exists, it re-displays that same element via `await cl.ElementSidebar.set_title("Dossier")` and `await cl.ElementSidebar.set_elements([doc], key="dossier-canvas")` — preserving `content`, `version`, and `phase`
+**And** if `cl.user_session.get("doc")` is `None` (e.g. resumed thread, or never opened), it calls `open_dossier_canvas()` to create a fresh one
+**And** calling the helper repeatedly does not orphan elements or overwrite session state — same `doc` reference is reused.
+
+**AC2: `/dossier` slash command reopens the canvas.**
+**Given** the chat is running
+**When** the user invokes the `/dossier` slash command
+**Then** `reopen_dossier_canvas()` is called and the panel becomes visible again
+**And** no chat message is required to trigger it (handled via Chainlit `@cl.action_callback` or `cl.set_commands` registration in `on_chat_start`).
+
+**AC3: Welcome message exposes a "Show dossier" button.**
+**Given** `@cl.on_chat_start` fires
+**When** the welcome message is rendered
+**Then** it includes a `cl.Action(name="show_dossier", label="Show dossier", ...)` button
+**And** clicking the button invokes the same handler as `/dossier`, calling `reopen_dossier_canvas()`.
+
+**AC4: Manual verification preserves state.**
+**Given** the panel has been closed by the user mid-conversation
+**When** the user runs `/dossier` (or clicks "Show dossier")
+**Then** the panel reopens showing the same `content`, `version`, and `phase` that were live before close — verified manually against the VPS deployment.
+
+**Tasks / Subtasks:**
+
+- **Task 1 (AC1):** Add `async def reopen_dossier_canvas() -> None:` in `app/chat.py`, near the existing `open_dossier_canvas()` helper. Branch on `cl.user_session.get("doc")`; reuse the existing element when present, otherwise delegate to `open_dossier_canvas()`.
+- **Task 2 (AC2):** Register a `/dossier` command (Chainlit `cl.set_commands` in `on_chat_start`, or `@cl.action_callback` keyed off a chat action). Handler awaits `reopen_dossier_canvas()` and returns silently.
+- **Task 3 (AC3):** In `on_chat_start`, extend the welcome `cl.Message` with `actions=[cl.Action(name="show_dossier", label="Show dossier", payload={})]` and add the matching `@cl.action_callback("show_dossier")` that calls `reopen_dossier_canvas()`.
+- **Task 4 (AC4):** Manual verification on the VPS deployment — close the panel, run `/dossier`, click "Show dossier"; confirm same `content`/`version`/`phase` survive both paths. Log the verification in the dev notes.
+
+**Dev Notes:**
+
+- AC1's idempotent helper **incidentally resolves the deferred Review Finding from Story 10.2** ("`open_dossier_canvas()` is not idempotent" — `app/chat.py:58-67`). The reopen path was always going to need an idempotent surface, so the finding is folded into this story rather than tracked separately.
+- Resume-path coverage is a side benefit: calling `reopen_dossier_canvas()` from a future `on_chat_resume` handler will Do The Right Thing because the helper already falls back to `open_dossier_canvas()` when `doc` is missing. This story does **not** wire `on_chat_resume` — that decision was deferred in the Story 10.2 review and remains open.
+- Chainlit's `ElementSidebar` close (×) is purely client-side; the Python-side `doc` and `user_session["doc"]` survive a close. Reopening is therefore a `set_elements` call with the existing reference, not a re-instantiation.
+
+**Anti-patterns:**
+
+- **DON'T** create a new `cl.CustomElement` on every reopen — that orphans the existing element and loses props sync.
+- **DON'T** clear `cl.user_session["doc"]` when the panel closes — there's no Python-side close event, and clearing it would defeat the reopen path.
+- **DON'T** trigger reopen automatically on every message turn — only on explicit user action (`/dossier`, button, or future resume).
+
+**References:**
+
+- `_bmad-output/implementation-artifacts/10-2-elementsidebar-canvas-integration.md` — Review Findings → "`open_dossier_canvas()` is not idempotent" (deferred to this story).
+- **Schedule:** implement **after** Story 10.3 (`apply_ops`) lands — 10.3 will exercise `update_dossier_content()` heavily, and the reopen logic should be validated against the live apply_ops-driven update flow.
+- Chainlit docs: `cl.ElementSidebar`, `cl.set_commands`, `@cl.action_callback`.
+
 ---
 
 ## Epic 11: Investigation State Machine
