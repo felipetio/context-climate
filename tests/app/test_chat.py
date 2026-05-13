@@ -208,8 +208,8 @@ class TestStreamingResponse:
         assert len(captured_messages) <= limit
 
     async def test_system_prompt_included_in_every_call(self, reload_chat):
-        """system prompt must be present in every API call (uses get_system_prompt)."""
-        from app.prompts import get_system_prompt
+        """system prompt must be present in every API call (Story 10.4: investigation prompt in default phase)."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
 
         tokens = ["response"]
         msg_mock = _make_fake_cl_message()
@@ -239,7 +239,7 @@ class TestStreamingResponse:
 
             await reload_chat.on_message(incoming)
 
-        assert captured_call_args.get("system") == get_system_prompt(rag_enabled=False, staleness_threshold_years=2)
+        assert captured_call_args.get("system") == INVESTIGATION_SYSTEM_PROMPT
 
     async def test_conversation_history_passed_to_api(self, reload_chat):
         """Prior conversation turns are included in the messages list."""
@@ -402,16 +402,23 @@ class TestErrorHandling:
         assert sent_messages[0].content.startswith("⚠️")
 
 
-def _make_session_mock_with_history(history=None, mcp_session=None, mcp_tools=None):
+def _make_session_mock_with_history(history=None, mcp_session=None, mcp_tools=None, dossier=None, doc=None):
     """Return a cl.user_session mock that serves the given values by key."""
     store = {
         "history": history if history is not None else [],
         "mcp_session": mcp_session,
         "mcp_tools": mcp_tools if mcp_tools is not None else [],
+        "dossier": dossier,
+        "doc": doc,
     }
 
     def fake_get(key, default=None):
-        return store.get(key, default)
+        value = store.get(key)
+        if value is None and key not in store:
+            return default
+        if value is None:
+            return default
+        return value
 
     mock = MagicMock()
     mock.get.side_effect = fake_get
@@ -441,12 +448,12 @@ class TestMcpToolUse:
             incoming.content = "search GDP"
             await reload_chat.on_message(incoming)
 
-        # apply_ops is always registered locally (Story 10.3), so the tools
-        # list passed to Claude is MCP tools + apply_ops.
+        # apply_ops is gated on dossier phase (Story 10.4). Default session phase is
+        # "investigating", so MCP tools are passed but apply_ops is not.
         passed_tools = captured_call_kwargs.get("tools") or []
         passed_names = [t["name"] for t in passed_tools]
         assert "search_indicators" in passed_names
-        assert "apply_ops" in passed_names
+        assert "apply_ops" not in passed_names
 
     async def test_configurable_model_used_in_api_call(self, reload_chat):
         """The model from settings.claude_model is used in the Claude API call."""
@@ -498,8 +505,35 @@ class TestMcpToolUse:
 
         assert captured_call_kwargs["max_tokens"] == 8192
 
-    async def test_apply_ops_registered_when_mcp_not_connected(self, reload_chat):
-        """Even when MCP is unavailable, the local apply_ops tool is registered (Story 10.3)."""
+    async def test_apply_ops_registered_in_dossier_phase(self, reload_chat):
+        """In dossier phase, the local apply_ops tool is registered (Story 10.4)."""
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "# Dossier", "version": 1}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(dossier={"phase": "dossier"}, doc=doc_mock),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hello"
+            await reload_chat.on_message(incoming)
+
+        passed_tools = captured_call_kwargs.get("tools") or []
+        passed_names = [t["name"] for t in passed_tools]
+        assert passed_names == ["apply_ops"]
+
+    async def test_apply_ops_not_registered_in_investigating_phase(self, reload_chat):
+        """In investigating phase (default), apply_ops is NOT exposed to the LLM (Story 10.4)."""
         msg_mock = _make_fake_cl_message()
         captured_call_kwargs = {}
 
@@ -518,7 +552,56 @@ class TestMcpToolUse:
 
         passed_tools = captured_call_kwargs.get("tools") or []
         passed_names = [t["name"] for t in passed_tools]
-        assert passed_names == ["apply_ops"]
+        assert "apply_ops" not in passed_names
+
+    async def test_investigation_system_prompt_used_in_investigating_phase(self, reload_chat):
+        """In investigating phase, INVESTIGATION_SYSTEM_PROMPT is used (Story 10.4 AC3)."""
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history()),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hi"
+            await reload_chat.on_message(incoming)
+
+        system = captured_call_kwargs.get("system", "")
+        assert "one short question at a time" in system
+        assert "apply_ops" not in system
+
+    async def test_dossier_system_prompt_prefixed_with_document_state(self, reload_chat):
+        """In dossier phase, system prompt is prefixed with [Current document (vN): ...] (AC4)."""
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "# Section A\n\nBody.", "version": 3}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(dossier={"phase": "dossier"}, doc=doc_mock),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "edit"
+            await reload_chat.on_message(incoming)
+
+        system = captured_call_kwargs.get("system", "")
+        assert system.startswith("[Current document (v3):\n# Section A\n\nBody.\n]\n\n")
+        assert "apply_ops" in system
 
     async def test_tool_use_loop_calls_mcp_and_sends_result_back(self, reload_chat):
         """When Claude returns tool_use, MCP is called and result fed back to Claude."""

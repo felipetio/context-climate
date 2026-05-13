@@ -13,7 +13,7 @@ from mcp.client.streamable_http import streamablehttp_client
 import app.data  # noqa: F401  # registers Chainlit data layer
 from app.citations import deduplicate_references, extract_references, format_reference_list
 from app.config import settings
-from app.prompts import get_system_prompt
+from app.prompts import DOSSIER_SYSTEM_PROMPT, INVESTIGATION_SYSTEM_PROMPT
 
 # ---------------------------------------------------------------------------
 # RAG upload constants (used only when DATA360_RAG_ENABLED=true)
@@ -527,17 +527,25 @@ async def _agentic_loop(
 
     Returns the final assembled text.
     """
+    dossier_state = cl.user_session.get("dossier")
+    phase = dossier_state.get("phase", "investigating") if isinstance(dossier_state, dict) else "investigating"
+    if phase == "dossier":
+        doc = cl.user_session.get("doc")
+        version = doc.props.get("version", 0) if doc is not None else 0
+        content = doc.props.get("content", "") if doc is not None else ""
+        doc_note = f"[Current document (v{version}):\n{content}\n]\n\n"
+        system_prompt = doc_note + DOSSIER_SYSTEM_PROMPT
+    else:
+        system_prompt = INVESTIGATION_SYSTEM_PROMPT
+
     call_kwargs: dict[str, Any] = {
         "model": settings.claude_model,
         "max_tokens": settings.claude_max_tokens,
-        "system": get_system_prompt(
-            rag_enabled=settings.rag_enabled,
-            staleness_threshold_years=settings.staleness_threshold_years,
-        ),
+        "system": system_prompt,
     }
-    # Always register the local apply_ops tool alongside MCP tools.
-    # Story 10.4 will gate it on dossier phase via the system prompt.
-    combined_tools = list(tools) + [APPLY_OPS_TOOL]
+    combined_tools = list(tools)
+    if phase == "dossier":
+        combined_tools.append(APPLY_OPS_TOOL)
     call_kwargs["tools"] = combined_tools
 
     max_rounds = settings.max_tool_rounds

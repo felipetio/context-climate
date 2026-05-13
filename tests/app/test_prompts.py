@@ -1,6 +1,11 @@
 """Tests for system prompt: conditional RAG section (8.5) and grounding boundary + citation markers (3.1)."""
 
-from app.prompts import SYSTEM_PROMPT, get_system_prompt
+from app.prompts import (
+    DOSSIER_SYSTEM_PROMPT,
+    INVESTIGATION_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+    get_system_prompt,
+)
 
 
 class TestGetSystemPrompt:
@@ -155,3 +160,21 @@ class TestDataFreshnessTransparency:
         result = get_system_prompt()
         assert "appended automatically" in result
         assert "Do not generate any source list" in result
+
+
+class TestDossierPrompts:
+    """Story 10.4: Phase-aware system prompts for investigation and dossier modes."""
+
+    def test_investigation_prompt_asks_one_question_at_a_time(self):
+        # Verbatim prompt phrasing is "one short question at a time"; AC7 substring relaxed
+        # to match the canonical text in Dev Notes.
+        assert "one short question at a time" in INVESTIGATION_SYSTEM_PROMPT
+
+    def test_investigation_prompt_no_apply_ops(self):
+        assert "apply_ops" not in INVESTIGATION_SYSTEM_PROMPT
+
+    def test_dossier_prompt_uses_apply_ops(self):
+        assert "apply_ops" in DOSSIER_SYSTEM_PROMPT
+
+    def test_dossier_prompt_no_inline_output(self):
+        assert "Never output the document content inline" in DOSSIER_SYSTEM_PROMPT
