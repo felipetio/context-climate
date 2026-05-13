@@ -169,9 +169,9 @@ def update_investigation_item(item_id: str, value: Any) -> dict[str, Any]:
 _DOSSIER_COMMANDS: list[dict[str, Any]] = [
     {
         "id": "dossier",
-        "description": "Reopen the dossier panel",
+        "description": "Toggle the dossier panel",
         "icon": "panel-right-open",
-        "button": True,
+        "button": False,
         "persistent": False,
     },
 ]
@@ -705,6 +705,17 @@ async def on_message(message: cl.Message):
 
         await _agentic_loop(loop_history, tools, mcp_session, msg)
 
+        # Attach a single-click dossier toggle button to every assistant response.
+        # cl.Action fires the server callback directly on click — no message send needed.
+        msg.actions = [
+            cl.Action(
+                name="show_dossier",
+                label="",
+                icon="panel-right-open",
+                tooltip="Toggle dossier panel",
+                payload={},
+            )
+        ]
         await msg.update()
 
         # Append assistant reply to persistent history (use msg.content for consistency
