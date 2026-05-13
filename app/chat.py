@@ -233,6 +233,39 @@ APPLY_OPS_TOOL: dict[str, Any] = {
 }
 
 
+UPDATE_INVESTIGATION_ITEM_TOOL: dict[str, Any] = {
+    "name": "update_investigation_item",
+    "description": (
+        "Record the journalist's answer for one investigation checklist item. "
+        "Call this exactly once per item, after you have gathered enough context "
+        "to summarise the answer in `value`. Do not call it speculatively. "
+        "Items 1-5 (topic_definition, geography_scope, time_range, target_audience, "
+        "data_sources_validation) are gathered during the interview phase; items 6-10 "
+        "(key_stats_capture, narrative_structure, case_studies, story_pitches, methodology) "
+        "are gathered while building the dossier."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "item_id": {
+                "type": "string",
+                "enum": list(_INVESTIGATION_ITEMS),
+                "description": "The checklist item being recorded.",
+            },
+            "value": {
+                "description": (
+                    "The journalist's answer for this item. "
+                    "Use a concise string for free-text items (topic_definition, geography_scope, etc.) "
+                    "or a structured object for items that summarise multiple data points "
+                    "(e.g. key_stats_capture, data_sources_validation)."
+                ),
+            },
+        },
+        "required": ["item_id", "value"],
+    },
+}
+
+
 def apply_single_op(content: str, op: dict) -> tuple[str, str | None]:
     """Apply a single op to `content` and return `(new_content, error | None)`.
 
@@ -698,6 +731,7 @@ async def _agentic_loop(
                 system_prompt = INVESTIGATION_SYSTEM_PROMPT
 
         combined_tools = list(tools)
+        combined_tools.append(UPDATE_INVESTIGATION_ITEM_TOOL)
         if phase == "dossier":
             combined_tools.append(APPLY_OPS_TOOL)
         return {
@@ -776,6 +810,16 @@ async def _agentic_loop(
                     except Exception as exc:
                         logger.error("apply_ops failed: %s", exc)
                         tool_output = f"Error applying ops: {exc}"
+                elif tool_name == "update_investigation_item":
+                    try:
+                        result = update_investigation_item(
+                            tool_input.get("item_id", ""),
+                            tool_input.get("value"),
+                        )
+                        tool_output = json.dumps(result)
+                    except Exception as exc:
+                        logger.error("update_investigation_item failed: %s", exc)
+                        tool_output = f"Error calling update_investigation_item: {exc}"
                 elif mcp_session is not None:
                     try:
                         call_result = await mcp_session.call_tool(tool_name, arguments=tool_input)

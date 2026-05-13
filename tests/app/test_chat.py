@@ -533,7 +533,9 @@ class TestMcpToolUse:
 
         passed_tools = captured_call_kwargs.get("tools") or []
         passed_names = [t["name"] for t in passed_tools]
-        assert passed_names == ["apply_ops"]
+        # Story 11.2 added `update_investigation_item` alongside apply_ops in dossier phase.
+        # This assertion remains focused on apply_ops registration (the Story 10.4 contract).
+        assert "apply_ops" in passed_names
 
     async def test_apply_ops_not_registered_in_investigating_phase(self, reload_chat):
         """In investigating phase (default), apply_ops is NOT exposed to the LLM (Story 10.4)."""
@@ -2204,3 +2206,284 @@ class TestAgenticLoopInvestigationSnapshot:
         system_prompt = captured_call_kwargs.get("system", "")
         assert "[Current document (v1):" in system_prompt
         assert "[Investigation state:" not in system_prompt
+
+
+class TestUpdateInvestigationItemTool:
+    """Story 11.2: LLM-facing tool definition, registration, and dispatch."""
+
+    def test_tool_definition_shape(self, reload_chat):
+        """AC1: tool constant has the expected name, required fields, and item_id enum."""
+        tool = reload_chat.UPDATE_INVESTIGATION_ITEM_TOOL
+        assert tool["name"] == "update_investigation_item"
+        assert tool["input_schema"]["required"] == ["item_id", "value"]
+        item_id_prop = tool["input_schema"]["properties"]["item_id"]
+        assert item_id_prop["type"] == "string"
+        assert item_id_prop["enum"] == list(reload_chat._INVESTIGATION_ITEMS)
+        # `value` is intentionally open-typed (no JSON "type" key) so strings and
+        # structured objects are both accepted by the schema.
+        assert "type" not in tool["input_schema"]["properties"]["value"]
+
+    async def test_tool_registered_in_investigating_phase(self, reload_chat):
+        """AC2a: tool is exposed to the LLM in investigating phase; apply_ops is NOT."""
+        import json as _json
+
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history()),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hi"
+            await reload_chat.on_message(incoming)
+
+        passed_names = [t["name"] for t in (captured_call_kwargs.get("tools") or [])]
+        assert "update_investigation_item" in passed_names
+        assert "apply_ops" not in passed_names
+        # silence linter (json imported lazily inside the test to mirror dev style)
+        del _json
+
+    async def test_tool_registered_in_dossier_phase(self, reload_chat):
+        """AC2b: tool is exposed alongside apply_ops in dossier phase."""
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "# Dossier", "version": 1}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(dossier={"phase": "dossier"}, doc=doc_mock),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "edit"
+            await reload_chat.on_message(incoming)
+
+        passed_names = [t["name"] for t in (captured_call_kwargs.get("tools") or [])]
+        assert "apply_ops" in passed_names
+        assert "update_investigation_item" in passed_names
+
+    async def test_dispatch_calls_helper_and_serializes_result(self, reload_chat):
+        """AC3a/AC3b: tool_use block triggers helper; result is JSON-serialised into tool_result."""
+        import json as _json
+
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="update_investigation_item",
+            input={"item_id": "topic_definition", "value": "Climate adaptation"},
+            id="toolu_inv_01",
+        )
+        text_block = _make_fake_content_block("text", "Recorded.")
+
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Recorded."], stop_reason="end_turn", content_blocks=[text_block])
+
+        call_count = 0
+        captured_histories = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_histories.append(list(kwargs.get("messages", [])))
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        investigation_state = reload_chat._empty_investigation_state()
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(investigation=investigation_state),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            incoming = MagicMock()
+            incoming.content = "the topic is climate adaptation"
+            await reload_chat.on_message(incoming)
+
+        # Second round's history must contain a tool_result block with our JSON-serialised dict.
+        round_two_history = captured_histories[1]
+        tool_result_msgs = [
+            m for m in round_two_history if m.get("role") == "user" and isinstance(m.get("content"), list)
+        ]
+        assert tool_result_msgs, "expected a tool_result user-message in round 2 history"
+        last_tool_results = tool_result_msgs[-1]["content"]
+        tool_result_block = next(b for b in last_tool_results if b.get("type") == "tool_result")
+        decoded = _json.loads(tool_result_block["content"])
+        assert decoded == {
+            "status": "ok",
+            "item": "topic_definition",
+            "items_done": 1,
+            "phase_gate_reached": False,
+        }
+
+    async def test_dispatch_handles_helper_exception(self, reload_chat, caplog):
+        """AC3c: helper exception is caught, surfaced as error string, and logged."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="update_investigation_item",
+            input={"item_id": "topic_definition", "value": "x"},
+            id="toolu_inv_02",
+        )
+        text_block = _make_fake_content_block("text", "ok")
+
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["ok"], stop_reason="end_turn", content_blocks=[text_block])
+
+        call_count = 0
+        captured_histories = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_histories.append(list(kwargs.get("messages", [])))
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history()),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch("app.chat.update_investigation_item", side_effect=RuntimeError("boom")),
+            caplog.at_level("ERROR", logger="app.chat"),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hi"
+            await reload_chat.on_message(incoming)
+
+        round_two_history = captured_histories[1]
+        tool_result_msgs = [
+            m for m in round_two_history if m.get("role") == "user" and isinstance(m.get("content"), list)
+        ]
+        last_tool_results = tool_result_msgs[-1]["content"]
+        tool_result_block = next(b for b in last_tool_results if b.get("type") == "tool_result")
+        assert tool_result_block["content"].startswith("Error calling update_investigation_item:")
+        assert any("update_investigation_item failed" in rec.message for rec in caplog.records)
+
+    async def test_dispatch_unknown_item_id_returns_structured_error(self, reload_chat):
+        """AC4: unknown item_id round-trips the helper's error dict — no exception."""
+        import json as _json
+
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="update_investigation_item",
+            input={"item_id": "bogus", "value": "x"},
+            id="toolu_inv_03",
+        )
+        text_block = _make_fake_content_block("text", "noted")
+
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["noted"], stop_reason="end_turn", content_blocks=[text_block])
+
+        call_count = 0
+        captured_histories = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_histories.append(list(kwargs.get("messages", [])))
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history()),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hi"
+            await reload_chat.on_message(incoming)
+
+        round_two_history = captured_histories[1]
+        tool_result_msgs = [
+            m for m in round_two_history if m.get("role") == "user" and isinstance(m.get("content"), list)
+        ]
+        last_tool_results = tool_result_msgs[-1]["content"]
+        tool_result_block = next(b for b in last_tool_results if b.get("type") == "tool_result")
+        decoded = _json.loads(tool_result_block["content"])
+        assert decoded == {"error": "Unknown item_id: 'bogus'"}
+
+    async def test_snapshot_reflects_update_in_next_round(self, reload_chat):
+        """AC5: round 2's system prompt shows the just-recorded item in the snapshot."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="update_investigation_item",
+            input={"item_id": "topic_definition", "value": "Climate"},
+            id="toolu_inv_04",
+        )
+        text_block = _make_fake_content_block("text", "Recorded.")
+
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Recorded."], stop_reason="end_turn", content_blocks=[text_block])
+
+        call_count = 0
+        captured_systems = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_systems.append(kwargs.get("system", ""))
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        investigation_state = reload_chat._empty_investigation_state()
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(investigation=investigation_state),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            incoming = MagicMock()
+            incoming.content = "the topic is climate"
+            await reload_chat.on_message(incoming)
+
+        assert call_count == 2
+        # Round 1: not yet recorded
+        assert "[ ] topic_definition" in captured_systems[0]
+        # Round 2: recorded with the supplied value
+        assert "[x] topic_definition: Climate" in captured_systems[1]
