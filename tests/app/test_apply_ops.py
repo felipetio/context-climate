@@ -154,6 +154,38 @@ class TestApplySingleOpUnknown:
         assert err == "Unknown op type: 'rotate'"
 
 
+class TestApplySingleOpMissingRequiredFields:
+    """Reject ops missing required `find`/`anchor` rather than silently no-op."""
+
+    @pytest.mark.parametrize("op_type", ["replace", "delete"])
+    def test_missing_find_rejected(self, apply_single_op, op_type):
+        original = "hello world"
+        new, err = apply_single_op(original, {"type": op_type, "content": "x"})
+        assert new == original
+        assert err == f"Missing required 'find' for {op_type} op"
+
+    @pytest.mark.parametrize("op_type", ["replace", "delete"])
+    def test_empty_find_rejected(self, apply_single_op, op_type):
+        original = "hello world"
+        new, err = apply_single_op(original, {"type": op_type, "find": "", "content": "x"})
+        assert new == original
+        assert err == f"Missing required 'find' for {op_type} op"
+
+    @pytest.mark.parametrize("op_type", ["insert_after", "insert_before"])
+    def test_missing_anchor_rejected(self, apply_single_op, op_type):
+        original = "hello world"
+        new, err = apply_single_op(original, {"type": op_type, "content": "x"})
+        assert new == original
+        assert err == f"Missing required 'anchor' for {op_type} op"
+
+    @pytest.mark.parametrize("op_type", ["insert_after", "insert_before"])
+    def test_empty_anchor_rejected(self, apply_single_op, op_type):
+        original = "hello world"
+        new, err = apply_single_op(original, {"type": op_type, "anchor": "", "content": "x"})
+        assert new == original
+        assert err == f"Missing required 'anchor' for {op_type} op"
+
+
 class TestApplyOpsToolSchema:
     """AC9: tool schema registered verbatim."""
 
