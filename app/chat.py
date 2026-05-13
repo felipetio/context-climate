@@ -81,6 +81,71 @@ async def reopen_dossier_canvas() -> None:
     await cl.ElementSidebar.set_elements([doc], key="dossier-canvas")
 
 
+_INVESTIGATION_ITEMS: tuple[str, ...] = (
+    "topic_definition",
+    "geography_scope",
+    "time_range",
+    "target_audience",
+    "data_sources_validation",
+    "key_stats_capture",
+    "narrative_structure",
+    "case_studies",
+    "story_pitches",
+    "methodology",
+)
+
+
+def _empty_investigation_state() -> dict[str, dict[str, Any]]:
+    return {item: {"done": False, "value": None} for item in _INVESTIGATION_ITEMS}
+
+
+def _format_investigation_snapshot(state: dict[str, dict[str, Any]]) -> str:
+    """Render a deterministic, ordered snapshot of the investigation checklist
+    for inclusion in the system prompt. Order follows `_INVESTIGATION_ITEMS`.
+    """
+    lines = ["[Investigation state:"]
+    for item in _INVESTIGATION_ITEMS:
+        entry = state.get(item) if isinstance(state, dict) else None
+        done = bool(entry.get("done")) if isinstance(entry, dict) else False
+        marker = "x" if done else " "
+        if done and isinstance(entry, dict) and entry.get("value") is not None:
+            value_repr = str(entry.get("value"))
+            if len(value_repr) > 120:
+                value_repr = value_repr[:117] + "..."
+            lines.append(f"  [{marker}] {item}: {value_repr}")
+        else:
+            lines.append(f"  [{marker}] {item}")
+    lines.append("]")
+    return "\n".join(lines)
+
+
+def update_investigation_item(item_id: str, value: Any) -> dict[str, Any]:
+    """Mark an investigation checklist item as complete and return status.
+
+    Story 11.1: state-foundation helper. Story 11.2 will wrap this as an
+    Anthropic tool; Story 11.3 will replace `phase_gate_reached: False` with
+    the real gate computation.
+    """
+    if item_id not in _INVESTIGATION_ITEMS:
+        return {"error": f"Unknown item_id: '{item_id}'"}
+
+    state = cl.user_session.get("investigation")
+    if not isinstance(state, dict):
+        state = _empty_investigation_state()
+        cl.user_session.set("investigation", state)
+
+    state[item_id] = {"done": True, "value": value}
+    logger.debug("[INVESTIGATION] item=%s status=complete value=%s", item_id, value)
+
+    items_done = sum(1 for v in state.values() if isinstance(v, dict) and v.get("done"))
+    return {
+        "status": "ok",
+        "item": item_id,
+        "items_done": items_done,
+        "phase_gate_reached": False,
+    }
+
+
 _DOSSIER_COMMANDS: list[dict[str, Any]] = [
     {
         "id": "dossier",
@@ -427,6 +492,7 @@ async def on_chat_resume(thread: dict) -> None:
     # Resumed threads need the dossier canvas re-seeded — the previous
     # CustomElement reference lives only in the prior process's memory.
     cl.user_session.set("dossier", {"phase": "investigating", "content": "", "version": 0})
+    cl.user_session.set("investigation", _empty_investigation_state())
     try:
         await open_dossier_canvas()
     except Exception:
@@ -469,6 +535,7 @@ async def on_chat_resume(thread: dict) -> None:
 @cl.on_chat_start
 async def on_chat_start():
     cl.user_session.set("dossier", {"phase": "investigating", "content": "", "version": 0})
+    cl.user_session.set("investigation", _empty_investigation_state())
     try:
         await open_dossier_canvas()
     except Exception:
@@ -623,7 +690,12 @@ async def _agentic_loop(
             doc_note = f"[Current document (v{version}):\n{content}\n]\n\n"
             system_prompt = doc_note + DOSSIER_SYSTEM_PROMPT
         else:
-            system_prompt = INVESTIGATION_SYSTEM_PROMPT
+            investigation_state = cl.user_session.get("investigation")
+            if isinstance(investigation_state, dict):
+                snapshot = _format_investigation_snapshot(investigation_state)
+                system_prompt = INVESTIGATION_SYSTEM_PROMPT + "\n\n" + snapshot
+            else:
+                system_prompt = INVESTIGATION_SYSTEM_PROMPT
 
         combined_tools = list(tools)
         if phase == "dossier":
