@@ -1,5 +1,15 @@
 # Deferred Work
 
+## Deferred from: code review of 11-2-update-investigation-item-tool (2026-05-13)
+
+- **[11-2] `update_investigation_item` helper mutates session dict in-place without `cl.user_session.set` on normal path** (`app/chat.py:137`) — pre-existing Story 11.1 design; if Chainlit ever returns a copy instead of a reference from `.get()`, the mutation is silently lost. Fix: add `cl.user_session.set("investigation", state)` after line 137 unconditionally.
+
+- **[11-2] Pre-dispatch `json.dumps(tool_input, indent=2)` not in try/except** (`app/chat.py:805`) — pre-existing agentic loop vulnerability; if any MCP tool deserializes a non-serialisable Python object into `tool_input`, this raises before the per-tool dispatch block. Shared exposure with `apply_ops` and MCP path. Fix: wrap in try/except or validate tool_input before logging.
+
+- **[11-2] No per-phase enforcement of legal `item_id` values** (`app/chat.py:816`) — LLM can call `update_investigation_item` with a phase-1 item in dossier phase (or vice-versa), silently overwriting a captured answer. Story 11.3 is the natural place to add phase-aware validation if overwrite protection is needed.
+
+- **[11-2] No investigation snapshot injected in dossier phase** (`app/chat.py:731`) — `_format_investigation_snapshot` is only appended to the system prompt in investigating phase. In dossier phase the LLM has no visibility of the checklist state while `update_investigation_item` remains registered for items 6-10. Story 11.3/11.4 should decide whether to surface the snapshot in dossier phase.
+
 ## Deferred from: code review of 10-2/10-3/10-4 (2026-05-13)
 
 - **[10-4] `INVESTIGATION_SYSTEM_PROMPT` has no DATA RULES** (`app/prompts.py:293`) — Accepted gap: investigation phase is interview-only; citation/data-integrity rules are not needed until dossier phase. Revisit if LLM starts producing data output in investigation mode.

@@ -1,6 +1,6 @@
 # Story 11.2: update_investigation_item Tool
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -162,6 +162,15 @@ This story is a **thin wrapper**: it exposes the existing `update_investigation_
 - [x] `uv run ruff check .`
 - [x] `uv run ruff format --check .`
 - [x] `uv run pytest -q`
+
+### Review Findings
+
+- [x] [Review][Defer] `update_investigation_item` mutates session dict in-place without `cl.user_session.set` on normal path [`app/chat.py:137`] — deferred, pre-existing (Story 11.1 design)
+- [x] [Review][Defer] Pre-dispatch `json.dumps(tool_input, indent=2)` not wrapped in try/except — crash path if tool_input contains non-serialisable value [`app/chat.py:805`] — deferred, pre-existing (agentic loop)
+- [x] [Review][Defer] No per-phase enforcement of which `item_id` values are legal — LLM can record phase-1 items in dossier phase or vice-versa [`app/chat.py:816`] — deferred, design concern for Story 11.3
+- [x] [Review][Defer] No investigation snapshot injected in dossier phase while `update_investigation_item` is still registered — LLM has no checklist visibility when recording items 6-10 [`app/chat.py:731`] — deferred, Story 11.1 design decision (AC4b)
+- [x] [Review][Defer] MCP name collision — local tool appended without deduplication check against MCP tool list [`app/chat.py:734`] — deferred, already tracked in deferred-work.md as `[10-4]`; local dispatch precedence is the mitigation
+- [x] [Review][Defer] `phase_gate_reached: False` hardcoded permanently [`app/chat.py:145`] — deferred, intentional placeholder explicitly documented in Dev Notes; Story 11.3 owns the swap
 
 ---
 
