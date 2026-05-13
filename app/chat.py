@@ -142,6 +142,8 @@ def apply_single_op(content: str, op: dict) -> tuple[str, str | None]:
 
     if op_type in ("replace", "delete"):
         find = op.get("find", "")
+        if not find:
+            return content, f"Missing required 'find' for {op_type} op"
         count = content.count(find)
         if count == 0:
             return content, f"Text not found: '{find}'"
@@ -153,6 +155,8 @@ def apply_single_op(content: str, op: dict) -> tuple[str, str | None]:
 
     if op_type in ("insert_after", "insert_before"):
         anchor = op.get("anchor", "")
+        if not anchor:
+            return content, f"Missing required 'anchor' for {op_type} op"
         count = content.count(anchor)
         if count == 0:
             return content, f"Anchor not found: '{anchor}'"
@@ -183,12 +187,22 @@ async def _handle_apply_ops(tool_input: dict) -> str:
     if doc is None:
         return "Error: dossier canvas is not open"
 
-    current_content: str = doc.props.get("content", "")
     ops: list[dict] = tool_input.get("ops", [])
+    if not ops:
+        return "Error: 'ops' must be a non-empty list"
+
+    # Snapshot for rollback on partial failure — keeps doc.props and the
+    # `dossier` session dict consistent if any op in the batch fails.
+    original_content: str = doc.props.get("content", "")
+    original_version: int = int(doc.props.get("version", 0))
+    current_content = original_content
 
     for op in ops:
         new_content, err = apply_single_op(current_content, op)
         if err is not None:
+            doc.props["content"] = original_content
+            doc.props["version"] = original_version
+            await doc.update()
             return err
         current_content = new_content
         doc.props["content"] = current_content
@@ -370,6 +384,14 @@ async def on_chat_resume(thread: dict) -> None:
     history = history[-max_msgs:]
     cl.user_session.set("history", history)
 
+    # Resumed threads need the dossier canvas re-seeded — the previous
+    # CustomElement reference lives only in the prior process's memory.
+    cl.user_session.set("dossier", {"phase": "investigating", "content": "", "version": 0})
+    try:
+        await open_dossier_canvas()
+    except Exception:
+        logger.warning("Failed to open dossier canvas on chat resume", exc_info=True)
+
     # Close any existing MCP stack before reconnecting (prevents connection leaks)
     existing_stack = cl.user_session.get(_MCP_EXIT_STACK_KEY)
     if existing_stack:
@@ -402,7 +424,10 @@ async def on_chat_resume(thread: dict) -> None:
 @cl.on_chat_start
 async def on_chat_start():
     cl.user_session.set("dossier", {"phase": "investigating", "content": "", "version": 0})
-    await open_dossier_canvas()
+    try:
+        await open_dossier_canvas()
+    except Exception:
+        logger.warning("Failed to open dossier canvas on chat start", exc_info=True)
 
     cl.user_session.set("history", [])
     cl.user_session.set(_MCP_SESSION_KEY, None)
@@ -527,26 +552,30 @@ async def _agentic_loop(
 
     Returns the final assembled text.
     """
-    dossier_state = cl.user_session.get("dossier")
-    phase = dossier_state.get("phase", "investigating") if isinstance(dossier_state, dict) else "investigating"
-    if phase == "dossier":
-        doc = cl.user_session.get("doc")
-        version = doc.props.get("version", 0) if doc is not None else 0
-        content = doc.props.get("content", "") if doc is not None else ""
-        doc_note = f"[Current document (v{version}):\n{content}\n]\n\n"
-        system_prompt = doc_note + DOSSIER_SYSTEM_PROMPT
-    else:
-        system_prompt = INVESTIGATION_SYSTEM_PROMPT
 
-    call_kwargs: dict[str, Any] = {
-        "model": settings.claude_model,
-        "max_tokens": settings.claude_max_tokens,
-        "system": system_prompt,
-    }
-    combined_tools = list(tools)
-    if phase == "dossier":
-        combined_tools.append(APPLY_OPS_TOOL)
-    call_kwargs["tools"] = combined_tools
+    def _build_call_kwargs() -> dict[str, Any]:
+        # Rebuilt each round so `apply_ops` mutations to the doc are reflected
+        # in the system prompt's `[Current document (vN): ...]` snapshot.
+        dossier_state = cl.user_session.get("dossier")
+        phase = dossier_state.get("phase", "investigating") if isinstance(dossier_state, dict) else "investigating"
+        if phase == "dossier":
+            doc = cl.user_session.get("doc")
+            version = doc.props.get("version", 0) if doc is not None else 0
+            content = doc.props.get("content", "") if doc is not None else ""
+            doc_note = f"[Current document (v{version}):\n{content}\n]\n\n"
+            system_prompt = doc_note + DOSSIER_SYSTEM_PROMPT
+        else:
+            system_prompt = INVESTIGATION_SYSTEM_PROMPT
+
+        combined_tools = list(tools)
+        if phase == "dossier":
+            combined_tools.append(APPLY_OPS_TOOL)
+        return {
+            "model": settings.claude_model,
+            "max_tokens": settings.claude_max_tokens,
+            "system": system_prompt,
+            "tools": combined_tools,
+        }
 
     max_rounds = settings.max_tool_rounds
     tool_round = 0
@@ -560,6 +589,7 @@ async def _agentic_loop(
                 "I'm sorry, but I had to stop because I exceeded the maximum number "
                 "of tool calls. Please try rephrasing or simplifying your request."
             )
+        call_kwargs = _build_call_kwargs()
         call_kwargs["messages"] = history
 
         async with client.messages.stream(**call_kwargs) as stream:
