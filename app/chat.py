@@ -70,6 +70,7 @@ async def open_dossier_canvas() -> None:
     await cl.ElementSidebar.set_title("Dossier")
     await cl.ElementSidebar.set_elements([doc], key="dossier-canvas")
     cl.user_session.set("doc", doc)
+    cl.user_session.set("sidebar_open", True)
 
 
 async def reopen_dossier_canvas() -> None:
@@ -83,6 +84,21 @@ async def reopen_dossier_canvas() -> None:
     # reopen call after the first one a silent no-op. The key is only used in
     # open_dossier_canvas (first open) to prevent flicker on duplicate calls.
     await cl.ElementSidebar.set_elements([doc])
+    cl.user_session.set("sidebar_open", True)
+
+
+async def toggle_dossier_canvas() -> None:
+    """Toggle the dossier sidebar open/closed.
+
+    Tracks open state server-side. If the user closed the sidebar via the X
+    button (which the server cannot observe), state re-syncs after one extra
+    click at most.
+    """
+    if cl.user_session.get("sidebar_open", False):
+        await cl.ElementSidebar.set_elements([])
+        cl.user_session.set("sidebar_open", False)
+    else:
+        await reopen_dossier_canvas()  # also sets sidebar_open = True
 
 
 _INVESTIGATION_ITEMS: tuple[str, ...] = (
@@ -169,7 +185,7 @@ async def _register_dossier_commands() -> None:
 
 @cl.action_callback("show_dossier")
 async def on_show_dossier(_action: cl.Action) -> None:
-    await reopen_dossier_canvas()
+    await toggle_dossier_canvas()
 
 
 async def update_dossier_content(content: str) -> None:
@@ -643,7 +659,7 @@ async def on_chat_end():
 async def on_message(message: cl.Message):
     # --- Slash command short-circuit (handled before agentic loop) ---
     if getattr(message, "command", None) == "dossier":
-        await reopen_dossier_canvas()
+        await toggle_dossier_canvas()
         return
 
     # --- RAG upload handling (only when RAG is enabled) ---

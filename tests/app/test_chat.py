@@ -1778,8 +1778,8 @@ class TestReopenDossierCanvas:
         sidebar_mock.set_elements.assert_awaited_once_with([existing_doc])
         # Must NOT create a new CustomElement
         custom_element_mock.assert_not_called()
-        # Must NOT mutate the session doc reference
-        session_mock.set.assert_not_called()
+        # reopen now records sidebar_open=True for toggle to work correctly
+        session_mock.set.assert_called_once_with("sidebar_open", True)
 
     async def test_reopen_when_no_doc_calls_open(self, reload_chat):
         """AC1: when no doc exists, reopen delegates to open_dossier_canvas."""
@@ -1837,8 +1837,8 @@ class TestOpenDossierCanvasIdempotency:
         # Must re-attach the existing doc via the sidebar — no key (bug fix: reopen must not
         # pass key="dossier-canvas" or Chainlit's dedup guard silently drops the call).
         sidebar_mock.set_elements.assert_awaited_once_with([existing_doc])
-        # Must NOT overwrite the session doc
-        session_mock.set.assert_not_called()
+        # Must NOT overwrite the session doc; reopen records sidebar_open=True for toggle
+        session_mock.set.assert_called_once_with("sidebar_open", True)
 
     async def test_open_when_no_doc_creates_new_element(self, reload_chat):
         """Sanity: original behaviour preserved when session is empty."""
@@ -1856,17 +1856,19 @@ class TestOpenDossierCanvasIdempotency:
 
         custom_element_mock.assert_called_once()
         sidebar_mock.set_elements.assert_awaited_once_with([new_doc], key="dossier-canvas")
-        session_mock.set.assert_called_once_with("doc", new_doc)
+        # Two set calls: ("doc", new_doc) + ("sidebar_open", True)
+        session_mock.set.assert_any_call("doc", new_doc)
+        session_mock.set.assert_any_call("sidebar_open", True)
 
 
 class TestShowDossierAction:
     """Story 10.5 AC3: welcome 'Show dossier' button reopens the canvas."""
 
-    async def test_show_dossier_callback_calls_reopen(self, reload_chat):
-        """The action_callback delegates to reopen_dossier_canvas."""
-        with patch("app.chat.reopen_dossier_canvas", new=AsyncMock()) as reopen_mock:
+    async def test_show_dossier_callback_calls_toggle(self, reload_chat):
+        """The action_callback delegates to toggle_dossier_canvas."""
+        with patch("app.chat.toggle_dossier_canvas", new=AsyncMock()) as toggle_mock:
             await reload_chat.on_show_dossier(MagicMock(name="action"))
-        reopen_mock.assert_awaited_once()
+        toggle_mock.assert_awaited_once()
 
     async def test_on_chat_start_welcome_includes_show_dossier_action(self, reload_chat):
         """on_chat_start sends the welcome message with a 'show_dossier' action button."""
