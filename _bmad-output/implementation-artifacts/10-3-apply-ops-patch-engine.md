@@ -1,6 +1,6 @@
 # Story 10.3: apply_ops Patch Engine
 
-Status: review
+Status: done
 
 ## Story
 
@@ -90,6 +90,15 @@ So that document edits are incremental, verifiable, and never produce full-doc r
 
 - [x] `uv run pytest -v` — zero failures (322 passed)
 - [x] `uv run ruff check . && uv run ruff format .` — clean
+
+### Review Findings (2026-05-13)
+
+Adversarial code review with Blind Hunter + Edge Case Hunter + Acceptance Auditor across stories 10-2/10-3/10-4.
+
+- [x] [Review][Patch] **`append`/`prepend` with empty or missing `content` silently no-ops but still increments `doc.props["version"]` and calls `doc.update()`** [app/chat.py:207-212] — **Fixed (2026-05-13):** added empty-content guard returning an error string; 4 new tests in `TestApplySingleOpEmptyContent`. 352/352 pass. — `op.get("content", "")` returns `""` if the LLM omits the key; the function returns `(content.strip(), None)` (success), version is bumped, frontend gets a spurious update. LLM receives `"ok"` with no actual change, misleading the model. Fix: guard `if not new_text: return content, f"Missing required 'content' for {op_type} op"`. _Severity: Med._
+- [x] [Review][Defer] **Partial rollback shows intermediate versions to frontend before snap-back** [app/chat.py:239-242] — On a multi-op batch where op N fails, ops 1..N-1 were already streamed to the canvas (with incrementing versions); rollback restores `original_content`/`original_version` correctly, but the frontend transiently saw higher version numbers. Not data corruption, but could confuse the JSX reconciliation if it relies on monotonically increasing versions. Defer: acceptable for now; address if frontend issues arise. _Severity: Med._
+- [x] [Review][Defer] **Anchor appearing as substring of its inserted `content` causes ambiguity error in the next op of the same batch** [app/chat.py:203] — `insert_after` replaces `anchor` with `anchor + "\n\n" + new_text`; if `new_text` contains `anchor`, the next op looking for that anchor finds 2 occurrences and returns an ambiguity error. Predictable behaviour (LLM gets actionable error and can retry with a smaller batch), but undocumented. Defer: document in tool description; fix if it proves problematic in practice. _Severity: Low._
+- [x] [Review][Defer] **`apply_ops` returns `"Error: dossier canvas is not open"` when canvas failed silently on resume — LLM may retry until `max_tool_rounds`** [app/chat.py:152] — If `open_dossier_canvas()` raised during `on_chat_resume` and was swallowed, `cl.user_session.get("doc")` is `None` for the rest of the session; subsequent `apply_ops` calls return an error the LLM has no system-prompt guidance to recover from. Defer: linked to the known resume-path architectural gap. _Severity: Med._
 
 ---
 

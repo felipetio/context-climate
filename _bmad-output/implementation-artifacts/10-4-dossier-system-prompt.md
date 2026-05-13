@@ -1,6 +1,6 @@
 # Story 10.4: Dossier Phase System Prompt
 
-Status: review
+Status: done
 
 ## Story
 
@@ -83,6 +83,14 @@ So that the LLM asks short questions during investigation and edits the document
 
 - [x] `uv run pytest -v` — zero failures
 - [x] `uv run ruff check . && uv run ruff format .` — clean
+
+### Review Findings (2026-05-13)
+
+Adversarial code review with Blind Hunter + Edge Case Hunter + Acceptance Auditor across stories 10-2/10-3/10-4.
+
+- [x] [Review][Defer] **`INVESTIGATION_SYSTEM_PROMPT` has no DATA RULES — LLM can call `search_indicators` (checklist item 5) with no guidance on citation format or data integrity** [app/prompts.py:293] — In investigation phase the model is expected to run `search_indicators` to confirm data exists, but the prompt contains no instructions for how to handle the result (no citation-format rules, no "do not invent numbers" constraint, no staleness warning). `_BASE_SYSTEM_PROMPT` had these but is no longer used in either dossier mode. `DOSSIER_SYSTEM_PROMPT` has a DATA RULES section; `INVESTIGATION_SYSTEM_PROMPT` does not. Options: (a) add a lightweight DATA RULES block to `INVESTIGATION_SYSTEM_PROMPT` covering at minimum "do not invent numbers" and "include DATA_SOURCE when quoting stats"; (b) accept that investigation phase is interview-only and that LLM output in this phase is not document-level (no citations needed yet). _Severity: Med._
+- [x] [Review][Defer] **Unbounded dossier document content injected into system prompt — no token-cap guard** [app/chat.py:619] — `doc_note = f"[Current document (v{version}):\n{content}\n]\n\n"` embeds the full document verbatim in every API call in dossier phase. For large dossiers (>10 k tokens) this can exhaust context or dramatically inflate cost. Dev Notes acknowledge this ("For large documents >10k tokens, consider truncating"). Defer: add a `content[-MAX_CHARS:]` truncation guard before the system-prompt cap is hit in practice. _Severity: Med._
+- [x] [Review][Defer] **`APPLY_OPS_TOOL` appended to `combined_tools` without name-deduplication check** [app/chat.py:624-626] — `combined_tools = list(tools)` then `combined_tools.append(APPLY_OPS_TOOL)` with no guard against an MCP server also registering a tool named `"apply_ops"`. Anthropic API likely rejects duplicate tool names. In practice no current MCP server does this; defer until MCP tool-name registry is formalized. _Severity: Low._
 
 ---
 

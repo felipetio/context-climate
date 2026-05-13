@@ -129,9 +129,9 @@ development_status:
   # Epic 10: Journalist Dossier Shell (dossier pivot, see sprint-change-proposal-2026-05-07.md)
   epic-10: in-progress
   10-1-document-jsx-custom-element: done
-  10-2-elementsidebar-canvas-integration: review
-  10-3-apply-ops-patch-engine: review
-  10-4-dossier-system-prompt: review
+  10-2-elementsidebar-canvas-integration: done
+  10-3-apply-ops-patch-engine: done
+  10-4-dossier-system-prompt: done
   10-5-dossier-canvas-reopen-affordance: done
   epic-10-retrospective: optional
 
