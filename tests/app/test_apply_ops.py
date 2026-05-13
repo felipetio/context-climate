@@ -186,6 +186,24 @@ class TestApplySingleOpMissingRequiredFields:
         assert err == f"Missing required 'anchor' for {op_type} op"
 
 
+class TestApplySingleOpEmptyContent:
+    """append/prepend with empty or missing content should return an error."""
+
+    @pytest.mark.parametrize("op_type", ["append", "prepend"])
+    def test_missing_content_rejected(self, apply_single_op, op_type):
+        original = "hello"
+        new, err = apply_single_op(original, {"type": op_type})
+        assert new == original
+        assert err == f"Missing required 'content' for {op_type} op"
+
+    @pytest.mark.parametrize("op_type", ["append", "prepend"])
+    def test_empty_content_rejected(self, apply_single_op, op_type):
+        original = "hello"
+        new, err = apply_single_op(original, {"type": op_type, "content": ""})
+        assert new == original
+        assert err == f"Missing required 'content' for {op_type} op"
+
+
 class TestApplyOpsToolSchema:
     """AC9: tool schema registered verbatim."""
 

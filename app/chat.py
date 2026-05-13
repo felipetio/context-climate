@@ -169,10 +169,14 @@ def apply_single_op(content: str, op: dict) -> tuple[str, str | None]:
 
     if op_type == "append":
         new_text = op.get("content", "")
+        if not new_text:
+            return content, "Missing required 'content' for append op"
         return (content + "\n\n" + new_text).strip(), None
 
     if op_type == "prepend":
         new_text = op.get("content", "")
+        if not new_text:
+            return content, "Missing required 'content' for prepend op"
         return (new_text + "\n\n" + content).strip(), None
 
     return content, f"Unknown op type: '{op_type}'"
