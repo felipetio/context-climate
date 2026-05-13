@@ -1,6 +1,6 @@
 # Story 10.4: Dossier Phase System Prompt
 
-Status: ready
+Status: review
 
 ## Story
 
@@ -36,18 +36,18 @@ So that the LLM asks short questions during investigation and edits the document
 
 ### Task 1: Add `INVESTIGATION_SYSTEM_PROMPT` to `app/prompts.py` (AC: #1)
 
-- [ ] Add constant after existing prompts (do not modify existing `_BASE_SYSTEM_PROMPT`)
-- [ ] Content: see Dev Notes below
+- [x] Add constant after existing prompts (do not modify existing `_BASE_SYSTEM_PROMPT`)
+- [x] Content: see Dev Notes below
 
 ### Task 2: Add `DOSSIER_SYSTEM_PROMPT` to `app/prompts.py` (AC: #2)
 
-- [ ] Add constant below `INVESTIGATION_SYSTEM_PROMPT`
-- [ ] Content: see Dev Notes below
+- [x] Add constant below `INVESTIGATION_SYSTEM_PROMPT`
+- [x] Content: see Dev Notes below
 
 ### Task 3: Update `_agentic_loop()` in `app/chat.py` for phase-aware prompt selection (AC: #3, #4)
 
-- [ ] At the start of `_agentic_loop()`, read phase: `phase = cl.user_session.get("dossier", {}).get("phase", "investigating")`
-- [ ] Select system prompt:
+- [x] At the start of `_agentic_loop()`, read phase: `phase = cl.user_session.get("dossier", {}).get("phase", "investigating")`
+- [x] Select system prompt:
   ```python
   if phase == "dossier":
       doc = cl.user_session.get("doc")
@@ -58,22 +58,22 @@ So that the LLM asks short questions during investigation and edits the document
   else:
       system = INVESTIGATION_SYSTEM_PROMPT
   ```
-- [ ] Replace the existing system prompt construction with this phase-aware version
-- [ ] Import `INVESTIGATION_SYSTEM_PROMPT`, `DOSSIER_SYSTEM_PROMPT` from `app.prompts`
+- [x] Replace the existing system prompt construction with this phase-aware version
+- [x] Import `INVESTIGATION_SYSTEM_PROMPT`, `DOSSIER_SYSTEM_PROMPT` from `app.prompts`
 
 ### Task 4: Phase-aware tool list (AC: #5, #6)
 
-- [ ] In `_agentic_loop()`, build the tool list conditionally:
+- [x] In `_agentic_loop()`, build the tool list conditionally:
   ```python
   tools = list(MCP_TOOLS)  # existing MCP tools always available
   if phase == "dossier":
       tools.append(APPLY_OPS_TOOL)
   ```
-- [ ] Ensure `APPLY_OPS_TOOL` is imported from where it was defined in Story 10.3
+- [x] Ensure `APPLY_OPS_TOOL` is imported from where it was defined in Story 10.3
 
 ### Task 5: Add tests to `tests/app/test_prompts.py` (AC: #7)
 
-- [ ] Add `TestDossierPrompts` test class:
+- [x] Add `TestDossierPrompts` test class:
   - `test_investigation_prompt_asks_one_question_at_a_time`: assert "one question at a time" in `INVESTIGATION_SYSTEM_PROMPT`
   - `test_investigation_prompt_no_apply_ops`: assert "apply_ops" not in `INVESTIGATION_SYSTEM_PROMPT`
   - `test_dossier_prompt_uses_apply_ops`: assert "apply_ops" in `DOSSIER_SYSTEM_PROMPT`
@@ -81,8 +81,8 @@ So that the LLM asks short questions during investigation and edits the document
 
 ### Task 6: Run full test suite and linter (AC: all)
 
-- [ ] `uv run pytest -v` — zero failures
-- [ ] `uv run ruff check . && uv run ruff format .` — clean
+- [x] `uv run pytest -v` — zero failures
+- [x] `uv run ruff check . && uv run ruff format .` — clean
 
 ---
 
@@ -193,12 +193,25 @@ The phase lives in `cl.user_session["dossier"]["phase"]`. Default is `"investiga
 
 ### Agent Model Used
 
-_To be filled on implementation_
+claude-opus-4-7 (1M context)
 
 ### Completion Notes
 
-_To be filled on implementation_
+- Added `INVESTIGATION_SYSTEM_PROMPT` and `DOSSIER_SYSTEM_PROMPT` to `app/prompts.py` using the verbatim text from Dev Notes. Preserved existing `_BASE_SYSTEM_PROMPT`, `SYSTEM_PROMPT`, and `get_system_prompt()` (still used by legacy/non-dossier paths and exercised by existing tests).
+- Refactored `_agentic_loop()` in `app/chat.py` to select the system prompt and tool list based on `cl.user_session["dossier"]["phase"]`. Added defensive `isinstance(dossier_state, dict)` guard so legacy session mocks returning a list for the default `get` value don't crash the loop.
+- In `dossier` phase the prompt is prefixed with `[Current document (v{version}):\n{content}\n]\n\n` as specified (AC4) and `APPLY_OPS_TOOL` is appended to the tool list (AC5). In `investigating` phase `APPLY_OPS_TOOL` is omitted (AC6) — this changes prior behaviour from Story 10.3.
+- Updated existing chat tests that asserted apply_ops was always registered (`test_tools_passed_to_claude_when_mcp_connected`, `test_apply_ops_registered_when_mcp_not_connected`, `test_system_prompt_included_in_every_call`) to reflect the new phase-gated semantics. Added new tests covering both phases and the document-state prefix.
+- AC7 deviation: AC7 specifies asserting the literal substring "one question at a time" inside `INVESTIGATION_SYSTEM_PROMPT`, but the verbatim prompt text in Dev Notes is "one short question at a time". Kept the prompt verbatim (Dev Notes is authoritative) and used `"one short question at a time"` in the test instead. All other AC7 substring checks pass exactly as written.
+- Full suite: 329 passed. `ruff check` and `ruff format --check` clean.
 
 ### File List
 
-_To be filled on implementation_
+- `app/prompts.py` (modified) — added `INVESTIGATION_SYSTEM_PROMPT`, `DOSSIER_SYSTEM_PROMPT`
+- `app/chat.py` (modified) — phase-aware system prompt + tool list in `_agentic_loop`
+- `tests/app/test_prompts.py` (modified) — added `TestDossierPrompts`
+- `tests/app/test_chat.py` (modified) — updated apply_ops/system-prompt assertions for phase gating; added new phase-aware tests
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified) — story status transitions
+
+### Change Log
+
+- 2026-05-12: Implemented Story 10.4 (phase-aware system prompts + apply_ops tool gating).
