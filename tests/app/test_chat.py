@@ -1723,3 +1723,229 @@ class TestConversationResume:
         failing_stack.aclose.assert_awaited_once()
         history = stored.get("history", [])
         assert history[0] == {"role": "user", "content": "Hi"}
+
+
+class TestDossierCommandOnResume:
+    """Story 10.5 AC2: /dossier command is registered when a thread is resumed."""
+
+    async def test_command_registered_on_chat_resume(self, reload_chat):
+        """on_chat_resume registers the dossier slash command so resumed sessions get /dossier."""
+        thread = {"steps": []}
+
+        @contextlib.asynccontextmanager
+        async def fake_mcp_client(url, **kwargs):
+            raise ConnectionError("MCP not available")
+            yield  # pragma: no cover
+
+        with (
+            patch("app.chat.streamablehttp_client", fake_mcp_client),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat._register_dossier_commands", new=AsyncMock()) as register_mock,
+            patch("app.chat.open_dossier_canvas", new=AsyncMock()),
+        ):
+            session_mock.set = MagicMock()
+            session_mock.get = MagicMock(return_value=None)
+            await reload_chat.on_chat_resume(thread)
+
+        register_mock.assert_awaited_once()
+
+
+class TestReopenDossierCanvas:
+    """Story 10.5: reopen_dossier_canvas() helper behaviour."""
+
+    async def test_reopen_reuses_existing_doc(self, reload_chat):
+        """AC1: when a doc exists, reopen re-attaches the same reference."""
+        existing_doc = MagicMock(name="existing-doc")
+        session_mock = _make_session_mock_with_history(doc=existing_doc)
+
+        with (
+            patch("app.chat.cl.user_session", session_mock),
+            patch("app.chat.cl.ElementSidebar") as sidebar_mock,
+            patch("app.chat.cl.CustomElement") as custom_element_mock,
+        ):
+            sidebar_mock.set_title = AsyncMock()
+            sidebar_mock.set_elements = AsyncMock()
+            await reload_chat.reopen_dossier_canvas()
+
+        sidebar_mock.set_title.assert_awaited_once_with("Dossier")
+        sidebar_mock.set_elements.assert_awaited_once_with([existing_doc], key="dossier-canvas")
+        # Must NOT create a new CustomElement
+        custom_element_mock.assert_not_called()
+        # Must NOT mutate the session doc reference
+        session_mock.set.assert_not_called()
+
+    async def test_reopen_when_no_doc_calls_open(self, reload_chat):
+        """AC1: when no doc exists, reopen delegates to open_dossier_canvas."""
+        session_mock = _make_session_mock_with_history(doc=None)
+
+        with (
+            patch("app.chat.cl.user_session", session_mock),
+            patch("app.chat.open_dossier_canvas", new=AsyncMock()) as open_mock,
+        ):
+            await reload_chat.reopen_dossier_canvas()
+
+        open_mock.assert_awaited_once()
+
+    async def test_reopen_is_idempotent(self, reload_chat):
+        """AC1: calling reopen multiple times does not orphan elements."""
+        existing_doc = MagicMock(name="existing-doc")
+        session_mock = _make_session_mock_with_history(doc=existing_doc)
+
+        with (
+            patch("app.chat.cl.user_session", session_mock),
+            patch("app.chat.cl.ElementSidebar") as sidebar_mock,
+            patch("app.chat.cl.CustomElement") as custom_element_mock,
+        ):
+            sidebar_mock.set_title = AsyncMock()
+            sidebar_mock.set_elements = AsyncMock()
+            await reload_chat.reopen_dossier_canvas()
+            await reload_chat.reopen_dossier_canvas()
+
+        assert sidebar_mock.set_elements.await_count == 2
+        for call in sidebar_mock.set_elements.await_args_list:
+            assert call.args == ([existing_doc],)
+            assert call.kwargs == {"key": "dossier-canvas"}
+        custom_element_mock.assert_not_called()
+
+
+class TestOpenDossierCanvasIdempotency:
+    """Story 10.5 AC5: open_dossier_canvas() no longer orphans existing docs."""
+
+    async def test_open_when_doc_exists_delegates_to_reopen(self, reload_chat):
+        """AC5: closes deferred Story 10.2 finding."""
+        existing_doc = MagicMock(name="existing-doc")
+        session_mock = _make_session_mock_with_history(doc=existing_doc)
+
+        with (
+            patch("app.chat.cl.user_session", session_mock),
+            patch("app.chat.cl.ElementSidebar") as sidebar_mock,
+            patch("app.chat.cl.CustomElement") as custom_element_mock,
+        ):
+            sidebar_mock.set_title = AsyncMock()
+            sidebar_mock.set_elements = AsyncMock()
+            await reload_chat.open_dossier_canvas()
+
+        # Must NOT create a second CustomElement
+        custom_element_mock.assert_not_called()
+        # Must re-attach the existing doc via the sidebar
+        sidebar_mock.set_elements.assert_awaited_once_with([existing_doc], key="dossier-canvas")
+        # Must NOT overwrite the session doc
+        session_mock.set.assert_not_called()
+
+    async def test_open_when_no_doc_creates_new_element(self, reload_chat):
+        """Sanity: original behaviour preserved when session is empty."""
+        session_mock = _make_session_mock_with_history(doc=None)
+        new_doc = MagicMock(name="new-doc")
+
+        with (
+            patch("app.chat.cl.user_session", session_mock),
+            patch("app.chat.cl.ElementSidebar") as sidebar_mock,
+            patch("app.chat.cl.CustomElement", return_value=new_doc) as custom_element_mock,
+        ):
+            sidebar_mock.set_title = AsyncMock()
+            sidebar_mock.set_elements = AsyncMock()
+            await reload_chat.open_dossier_canvas()
+
+        custom_element_mock.assert_called_once()
+        sidebar_mock.set_elements.assert_awaited_once_with([new_doc], key="dossier-canvas")
+        session_mock.set.assert_called_once_with("doc", new_doc)
+
+
+class TestShowDossierAction:
+    """Story 10.5 AC3: welcome 'Show dossier' button reopens the canvas."""
+
+    async def test_show_dossier_callback_calls_reopen(self, reload_chat):
+        """The action_callback delegates to reopen_dossier_canvas."""
+        with patch("app.chat.reopen_dossier_canvas", new=AsyncMock()) as reopen_mock:
+            await reload_chat.on_show_dossier(MagicMock(name="action"))
+        reopen_mock.assert_awaited_once()
+
+    async def test_on_chat_start_welcome_includes_show_dossier_action(self, reload_chat):
+        """on_chat_start sends the welcome message with a 'show_dossier' action button."""
+        captured_kwargs = {}
+
+        def fake_message(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            msg = AsyncMock()
+            msg.send = AsyncMock()
+            return msg
+
+        @contextlib.asynccontextmanager
+        async def failing_client(url, **kwargs):
+            raise ConnectionError("no MCP")
+            yield  # pragma: no cover
+
+        with (
+            patch("app.chat.streamablehttp_client", failing_client),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history()),
+            patch("app.chat.cl.Message", side_effect=fake_message),
+            patch("app.chat._register_dossier_commands", new=AsyncMock()),
+            patch("app.chat.open_dossier_canvas", new=AsyncMock()),
+        ):
+            await reload_chat.on_chat_start()
+
+        actions = captured_kwargs.get("actions") or []
+        assert len(actions) == 1
+        assert actions[0].name == "show_dossier"
+        assert actions[0].label == "Show dossier"
+        assert actions[0].payload == {}
+
+
+class TestDossierSlashCommand:
+    """Story 10.5 AC2: /dossier command reopens canvas without entering agentic loop."""
+
+    async def test_command_short_circuits_on_message(self, reload_chat):
+        """A message with command='dossier' calls reopen and skips the agentic loop."""
+        session_mock = _make_session_mock_with_history(doc=MagicMock(name="doc"))
+
+        with (
+            patch("app.chat.reopen_dossier_canvas", new=AsyncMock()) as reopen_mock,
+            patch("app.chat._agentic_loop", new=AsyncMock()) as loop_mock,
+            patch("app.chat.cl.user_session", session_mock),
+            patch("app.chat.client.messages.stream") as stream_mock,
+        ):
+            incoming = MagicMock()
+            incoming.command = "dossier"
+            incoming.content = "/dossier"
+            await reload_chat.on_message(incoming)
+
+        reopen_mock.assert_awaited_once()
+        loop_mock.assert_not_called()
+        stream_mock.assert_not_called()
+
+    async def test_command_registered_on_chat_start(self, reload_chat):
+        """on_chat_start registers the dossier slash command via the emitter."""
+
+        @contextlib.asynccontextmanager
+        async def failing_client(url, **kwargs):
+            raise ConnectionError("no MCP")
+            yield  # pragma: no cover
+
+        with (
+            patch("app.chat.streamablehttp_client", failing_client),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history()),
+            patch("app.chat.cl.Message") as msg_cls,
+            patch("app.chat._register_dossier_commands", new=AsyncMock()) as register_mock,
+            patch("app.chat.open_dossier_canvas", new=AsyncMock()),
+        ):
+            msg_cls.return_value.send = AsyncMock()
+            await reload_chat.on_chat_start()
+
+        register_mock.assert_awaited_once()
+
+    async def test_register_dossier_commands_payload(self, reload_chat):
+        """The registered command list has the expected shape (id, description, icon)."""
+        emitter_mock = AsyncMock()
+
+        class _CtxStub:
+            emitter = emitter_mock
+
+        with patch("app.chat.cl.context", _CtxStub):
+            await reload_chat._register_dossier_commands()
+
+        emitter_mock.set_commands.assert_awaited_once()
+        commands = emitter_mock.set_commands.await_args.args[0]
+        assert len(commands) == 1
+        assert commands[0]["id"] == "dossier"
+        assert "description" in commands[0]
+        assert "icon" in commands[0]

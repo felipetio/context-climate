@@ -57,6 +57,11 @@ logger = logging.getLogger(__name__)
 
 
 async def open_dossier_canvas() -> None:
+    # Idempotent: if a doc already exists in the session, re-attach it instead of
+    # creating a second CustomElement (closes Story 10.2 deferred review finding).
+    if cl.user_session.get("doc") is not None:
+        await reopen_dossier_canvas()
+        return
     doc = cl.CustomElement(
         name="Document",
         props={"content": "", "version": 0, "phase": "investigating"},
@@ -65,6 +70,37 @@ async def open_dossier_canvas() -> None:
     await cl.ElementSidebar.set_title("Dossier")
     await cl.ElementSidebar.set_elements([doc], key="dossier-canvas")
     cl.user_session.set("doc", doc)
+
+
+async def reopen_dossier_canvas() -> None:
+    doc = cl.user_session.get("doc")
+    if doc is None:
+        await open_dossier_canvas()
+        return
+    await cl.ElementSidebar.set_title("Dossier")
+    await cl.ElementSidebar.set_elements([doc], key="dossier-canvas")
+
+
+_DOSSIER_COMMANDS: list[dict[str, Any]] = [
+    {
+        "id": "dossier",
+        "description": "Reopen the dossier panel",
+        "icon": "panel-right-open",
+        "button": False,
+        "persistent": False,
+    },
+]
+
+
+async def _register_dossier_commands() -> None:
+    # Chainlit 2.10 does not expose `cl.set_commands` at the module level —
+    # the public path is the per-session emitter on `cl.context`.
+    await cl.context.emitter.set_commands(_DOSSIER_COMMANDS)
+
+
+@cl.action_callback("show_dossier")
+async def on_show_dossier(_action: cl.Action) -> None:
+    await reopen_dossier_canvas()
 
 
 async def update_dossier_content(content: str) -> None:
@@ -396,6 +432,11 @@ async def on_chat_resume(thread: dict) -> None:
     except Exception:
         logger.warning("Failed to open dossier canvas on chat resume", exc_info=True)
 
+    try:
+        await _register_dossier_commands()
+    except Exception:
+        logger.warning("Failed to register dossier slash command on chat resume", exc_info=True)
+
     # Close any existing MCP stack before reconnecting (prevents connection leaks)
     existing_stack = cl.user_session.get(_MCP_EXIT_STACK_KEY)
     if existing_stack:
@@ -470,7 +511,15 @@ async def on_chat_start():
         logger.warning("MCP auto-connect failed, continuing without tools", exc_info=True)
         await stack.aclose()
 
-    await cl.Message(content="Welcome to Context Climate! Ask me about World Bank climate and development data.").send()
+    try:
+        await _register_dossier_commands()
+    except Exception:
+        logger.warning("Failed to register dossier slash command on chat start", exc_info=True)
+
+    await cl.Message(
+        content="Welcome to Context Climate! Ask me about World Bank climate and development data.",
+        actions=[cl.Action(name="show_dossier", label="Show dossier", payload={})],
+    ).send()
 
 
 @cl.on_chat_end
@@ -485,6 +534,11 @@ async def on_chat_end():
 
 @cl.on_message
 async def on_message(message: cl.Message):
+    # --- Slash command short-circuit (handled before agentic loop) ---
+    if getattr(message, "command", None) == "dossier":
+        await reopen_dossier_canvas()
+        return
+
     # --- RAG upload handling (only when RAG is enabled) ---
     upload_context_parts: list[str] = []
     if settings.rag_enabled and message.elements:
