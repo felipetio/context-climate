@@ -1,0 +1,846 @@
+/* =====================================================================
+   Context Climate — Chainlit custom CSS (InfoAmazonia visual system)
+   ---------------------------------------------------------------------
+   IMPORTANT: Chainlit serves /public/custom.css BEFORE its own
+   /assets/index-*.css bundle. The bundle defines its OWN :root and .dark
+   blocks with sidebar-accent / sidebar-background / primary / etc — and
+   because the bundle loads later, equal-specificity selectors lose to it.
+
+   Therefore every design token below uses !important on the value side.
+   That is the *only* reliable way to override a custom property whose
+   declaration loads after ours.
+   ===================================================================== */
+
+/* ─── Brand tokens (raw hex; never used directly by shadcn) ─────────── */
+:root {
+  --brand-leaf:   #80BC36;
+  --brand-olive:  #59811A;
+  --brand-forest: #0F542F;
+  --brand-pine:   #1A3A33;
+  --brand-ink:    #0A0A0A;
+
+  --neutral-0:   #FFFFFF;
+  --neutral-50:  #FAFAFA;
+  --neutral-100: #F5F5F5;
+  --neutral-200: #EBEBEB;
+  --neutral-300: #D6D6D6;
+  --neutral-400: #A8AEB3;
+  --neutral-500: #6E757D;
+  --neutral-600: #555D66;
+  --neutral-700: #3A4148;
+  --neutral-800: #232830;
+  --neutral-900: #191E23;
+
+  --font-display: "Open Sans Condensed", "Oswald", system-ui, sans-serif;
+  --font-body:    "Open Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono:    "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --citation-bg:     #F4F1E9;
+  --citation-fg:     #4A3A1F;
+  --citation-border: #D9D1BC;
+
+  --shadow-1: 0 1px 0 rgba(10,10,10,.04), 0 1px 2px rgba(10,10,10,.06);
+  --shadow-focus: 0 0 0 3px rgba(89,129,26,.30);
+}
+
+/* ─── LIGHT THEME tokens — every value !important to beat the bundle ── */
+:root,
+html:not(.dark) {
+  --background: 0 0% 100% !important;
+  --foreground: 0 0% 4% !important;
+
+  --card: 0 0% 100% !important;
+  --card-foreground: 0 0% 4% !important;
+
+  --popover: 0 0% 100% !important;
+  --popover-foreground: 0 0% 4% !important;
+
+  --primary: 82 67% 30% !important;            /* olive #59811A */
+  --primary-foreground: 0 0% 100% !important;
+
+  --secondary: 0 0% 96% !important;
+  --secondary-foreground: 0 0% 4% !important;
+
+  --muted: 0 0% 96% !important;
+  --muted-foreground: 213 9% 37% !important;   /* metadata grey #555D66 */
+
+  /* --accent is the user-message bubble background AND the composer
+     surface. Keep it neutral, never olive. */
+  --accent: 0 0% 96% !important;
+  --accent-foreground: 0 0% 4% !important;
+
+  --destructive: 4 71% 41% !important;
+  --destructive-foreground: 0 0% 100% !important;
+
+  --border: 0 0% 92% !important;
+  --input: 0 0% 92% !important;
+  --ring: 82 67% 30% !important;
+
+  /* Sidebar — match its accent to its background so the absolute-
+     positioned kebab button doesn't print a colored rounded square. */
+  --sidebar:                       0 0% 98% !important;
+  --sidebar-background:            0 0% 98% !important;
+  --sidebar-foreground:            0 0% 4%  !important;
+  --sidebar-primary:               82 67% 30% !important;
+  --sidebar-primary-foreground:    0 0% 100% !important;
+  --sidebar-accent:                0 0% 94% !important;  /* neutral, not olive */
+  --sidebar-accent-foreground:     82 67% 22% !important;
+  --sidebar-border:                0 0% 92% !important;
+  --sidebar-ring:                  82 67% 30% !important;
+
+  --chart-1: 82 67% 30% !important;
+  --chart-2: 151 70% 19% !important;
+  --chart-3: 82 53% 47% !important;
+  --chart-4: 168 38% 17% !important;
+  --chart-5: 213 9% 37% !important;
+
+  --radius: 0.375rem !important;
+}
+
+/* ─── DARK THEME tokens — same story, !important everywhere ─────────── */
+.dark,
+html.dark,
+:root.dark {
+  --background: 210 17% 12% !important;        /* #191E23 InfoA standard */
+  --foreground: 210 14% 92% !important;
+
+  --card: 210 16% 15% !important;
+  --card-foreground: 210 14% 92% !important;
+
+  --popover: 210 16% 15% !important;
+  --popover-foreground: 210 14% 92% !important;
+
+  --primary: 82 53% 47% !important;            /* leaf flips up on dark */
+  --primary-foreground: 210 17% 12% !important;
+
+  --secondary: 210 14% 18% !important;
+  --secondary-foreground: 210 14% 92% !important;
+
+  --muted: 210 14% 18% !important;
+  --muted-foreground: 213 9% 60% !important;
+
+  --accent: 210 14% 18% !important;
+  --accent-foreground: 210 14% 92% !important;
+
+  --destructive: 4 60% 50% !important;
+  --destructive-foreground: 0 0% 100% !important;
+
+  --border: 210 14% 22% !important;
+  --input: 210 14% 22% !important;
+  --ring: 82 53% 47% !important;
+
+  /* Sidebar: same colour for surface, fade-from, and accent — the kebab
+     button + fade gradient become invisible until you hover. */
+  --sidebar:                       210 17% 10% !important;
+  --sidebar-background:            210 17% 10% !important;
+  --sidebar-foreground:            210 14% 92% !important;
+  --sidebar-primary:               82 53% 47% !important;
+  --sidebar-primary-foreground:    210 17% 12% !important;
+  --sidebar-accent:                210 17% 10% !important;  /* match surface */
+  --sidebar-accent-foreground:     82 53% 65% !important;
+  --sidebar-border:                210 14% 22% !important;
+  --sidebar-ring:                  82 53% 47% !important;
+
+  --chart-1: 82 53% 47% !important;
+  --chart-2: 82 67% 30% !important;
+  --chart-3: 151 70% 19% !important;
+  --chart-4: 168 38% 22% !important;
+  --chart-5: 213 9% 60% !important;
+
+  --citation-bg:     #2A2620;
+  --citation-fg:     #DCD2B6;
+  --citation-border: #3D372A;
+}
+
+/* =====================================================================
+   FIX #1 — Sidebar chat-item kebab (`#thread-options`)
+   ---------------------------------------------------------------------
+   Chainlit ships the kebab with `opacity-100` hardcoded on the ACTIVE
+   thread row — not just on hover. It also has `bg-sidebar-accent`,
+   so it prints as a coloured rounded square on every active item.
+   Hide it unless the row is hovered, focused, or the menu is open.
+   ===================================================================== */
+li[data-sidebar="menu-item"] #thread-options,
+li[data-sidebar="menu-item"] [id="thread-options"] {
+  opacity: 0 !important;
+  background-color: transparent !important;
+  transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+/* Show on hover of the row, on focus, or when the menu popover is open. */
+li[data-sidebar="menu-item"]:hover [id="thread-options"],
+li[data-sidebar="menu-item"]:focus-within [id="thread-options"],
+[id="thread-options"][aria-expanded="true"],
+[id="thread-options"][data-state="open"] {
+  opacity: 1 !important;
+  background-color: hsl(var(--sidebar-accent)) !important;
+}
+
+/* Soft hover treatment for the kebab pill itself */
+[id="thread-options"]:hover {
+  background-color: hsl(var(--accent)) !important;
+  color: hsl(var(--primary)) !important;
+}
+
+/* Soften the right-edge fade overlay too — it's fine, but make sure it
+   only kicks in when there's actual text to mask (long titles). The
+   gradient already references --sidebar-background so it'll be invisible
+   now that --sidebar-accent matches it. */
+
+/* =====================================================================
+   FIX #2 — Login screen redesign
+   ---------------------------------------------------------------------
+   `public/login-customize.js` injects the editorial brand elements into
+   Chainlit's stock 2-column login DOM (and tags <body> with
+   data-cc-login-staged="true"). This block styles them.
+
+   Architecture:
+   - Left column (.cc-form-col): Context Climate wordmark + eyebrow +
+     headline + subhead + form + bottom InfoAmazonia attribution.
+   - Right column (.cc-hero-col): full-bleed Amazon canopy photo with a
+     forest-green dim overlay + pull quote + footer.
+   ===================================================================== */
+
+/* When the customizer has staged the page, kill any default decorations
+   that Chainlit shipped (the favicon-as-hero <img>, the centered logo). */
+body[data-cc-login-staged] .cc-hero-col img,
+body[data-cc-login-staged] .cc-form-col img.logo,
+body[data-cc-login-staged] .cc-form-col img[alt="logo"] {
+  display: none !important;
+}
+
+/* ── LEFT column ────────────────────────────────────────────────────── */
+body[data-cc-login-staged] .cc-form-col {
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 40px 56px !important;
+  background: hsl(var(--background));
+}
+
+.cc-brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cc-brand-mark { width: 24px; height: 24px; flex-shrink: 0; }
+.cc-brand-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  text-transform: uppercase;
+  letter-spacing: -0.005em;
+  color: var(--brand-ink);
+}
+.dark .cc-brand-name { color: hsl(var(--foreground)); }
+
+/* Form block — pin to the form column's center vertically */
+body[data-cc-login-staged] .cc-form-col > div:nth-child(2) {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+body[data-cc-login-staged] .cc-form-col > div:nth-child(2) > div {
+  max-width: 400px !important;
+  width: 100% !important;
+}
+
+.cc-eyebrow {
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brand-olive);
+  margin: 0 0 14px;
+}
+.dark .cc-eyebrow { color: hsl(82 53% 60%); }
+
+body[data-cc-login-staged] h1.cc-head,
+body[data-cc-login-staged] h1.cc-head span {
+  font-family: var(--font-display) !important;
+  font-weight: 700 !important;
+  font-size: 38px !important;
+  text-transform: uppercase !important;
+  letter-spacing: -0.015em !important;
+  line-height: 1.05 !important;
+  margin: 0 0 14px !important;
+  color: var(--brand-ink);
+  text-align: left !important;
+}
+.dark body[data-cc-login-staged] h1.cc-head,
+.dark body[data-cc-login-staged] h1.cc-head span { color: hsl(var(--foreground)); }
+
+.cc-sub {
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--neutral-600);
+  margin: 0 0 28px;
+  max-width: 36ch;
+  text-align: left;
+}
+
+/* Restore the H1 wrap-row to left-aligned (Chainlit centers it). */
+body[data-cc-login-staged] h1.cc-head {
+  align-self: flex-start;
+}
+body[data-cc-login-staged] form > div:first-child {
+  align-items: flex-start !important;
+  text-align: left !important;
+}
+
+/* Submit button — olive, full-width pill-ish */
+body[data-cc-login-staged] form button[type="submit"] {
+  background: var(--brand-olive) !important;
+  background-color: var(--brand-olive) !important;
+  color: #fff !important;
+  height: 44px !important;
+  border-radius: 4px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+}
+body[data-cc-login-staged] form button[type="submit"]:hover {
+  background: #4B6F16 !important;
+  background-color: #4B6F16 !important;
+}
+
+/* Inputs */
+body[data-cc-login-staged] form input {
+  height: 42px !important;
+  font-family: var(--font-body) !important;
+  font-size: 15px !important;
+}
+body[data-cc-login-staged] form input:focus {
+  border-color: var(--brand-olive) !important;
+  box-shadow: var(--shadow-focus) !important;
+  outline: none !important;
+}
+
+/* Field labels — uppercase eyebrow style */
+body[data-cc-login-staged] form label {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  color: var(--neutral-600) !important;
+}
+
+/* Bottom byline */
+.cc-form-foot {
+  margin-top: auto;
+  padding-top: 24px;
+  border-top: 1px solid hsl(var(--border));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--neutral-600);
+}
+.cc-form-foot .cc-by { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cc-form-foot .cc-by strong { color: var(--brand-forest); font-weight: 700; }
+.dark .cc-form-foot .cc-by strong { color: hsl(82 53% 60%); }
+.cc-form-foot .cc-by .dot { color: var(--neutral-300); }
+
+/* ── RIGHT column ───────────────────────────────────────────────────── */
+body[data-cc-login-staged] .cc-hero-col {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 48px 56px !important;
+  overflow: hidden !important;
+  background-image: url("/public/login-bg.jpg") !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-color: var(--brand-forest) !important;
+  color: #fff !important;
+}
+/* Bottom-up dim so the pull quote stays legible */
+body[data-cc-login-staged] .cc-hero-col::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(10,10,10,0.22) 0%,
+    rgba(10,10,10,0.04) 25%,
+    rgba(15,84,47,0.58) 100%
+  );
+  pointer-events: none;
+}
+
+.cc-hero-overlay {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.cc-hero-tag {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.88);
+  text-shadow: 0 1px 8px rgba(0,0,0,0.4);
+}
+.cc-pull {
+  margin: auto 0 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(56px, 6.5vw, 92px);
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  max-width: 13ch;
+  color: #fff;
+  text-shadow: 0 2px 24px rgba(0,0,0,0.35);
+}
+.cc-pull em {
+  font-style: italic;
+  font-weight: 300;
+  text-transform: none;
+  letter-spacing: -0.005em;
+  color: var(--brand-leaf);
+}
+.cc-pull-sub {
+  margin-top: 18px;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  color: rgba(255,255,255,0.88);
+  max-width: 36ch;
+  text-shadow: 0 1px 8px rgba(0,0,0,0.4);
+}
+.cc-pull-sub strong { font-weight: 700; color: #fff; }
+
+.cc-hero-foot {
+  margin-top: auto;
+  padding-top: 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  color: rgba(255,255,255,0.85);
+}
+.cc-credit {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.cc-credit .b { color: var(--brand-leaf); }
+
+/* Mobile: hero column hidden, form full-width */
+@media (max-width: 900px) {
+  body[data-cc-login-staged] .cc-hero-col { display: none !important; }
+  body[data-cc-login-staged] .cc-form-col { padding: 24px 28px !important; }
+}
+
+/* =====================================================================
+   Typography — newsroom register
+   ===================================================================== */
+html,
+body,
+body *:not(pre):not(code):not(kbd):not(samp):not([class*="mono" i]):not(.font-mono) {
+  font-family: var(--font-body) !important;
+}
+
+html, body {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Display face on real headings & dossier surface */
+h1, h2, h3,
+.cl-message-content h1, .cl-message-content h2, .cl-message-content h3,
+main h1, main h2, main h3,
+[data-step-type="assistant_message"] h1,
+[data-step-type="assistant_message"] h2,
+[data-step-type="assistant_message"] h3,
+[class*="dossier"] h1, [class*="dossier"] h2, [class*="dossier"] h3,
+.dossier-card-head, .dossier-card-head *,
+.data-sources h4 {
+  font-family: var(--font-display) !important;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
+h1, .cl-message-content h1 { text-transform: uppercase; }
+
+/* Mono stays mono */
+pre, code, kbd, samp,
+.font-mono, [class*="font-mono" i],
+[data-step-type="tool"], [data-step-type="tool"] *,
+.dossier-card-head .v {
+  font-family: var(--font-mono) !important;
+}
+
+/* Body copy */
+.cl-message-content p,
+[data-step-type="assistant_message"] p,
+main p {
+  font-weight: 400;
+  line-height: 1.65;
+}
+
+/* Metadata grey for small captions, timestamps */
+.cl-message-meta,
+[data-testid="message-time"],
+.text-muted-foreground.text-xs,
+.text-xs.text-muted-foreground {
+  color: var(--neutral-600) !important;
+}
+
+/* =====================================================================
+   Header — quieter brand links + dark-mode icon polish
+   ===================================================================== */
+#header,
+header,
+[class*="Header"] {
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+#header a[href^="http"],
+header a[href^="http"] {
+  font-size: 12.5px;
+  color: var(--neutral-600);
+}
+#header a[href^="http"]:hover,
+header a[href^="http"]:hover {
+  color: var(--brand-ink);
+}
+.dark #header a[href^="http"],
+.dark header a[href^="http"] {
+  color: hsl(213 9% 70%);
+}
+.dark #header a[href^="http"]:hover,
+.dark header a[href^="http"]:hover {
+  color: hsl(var(--foreground));
+}
+
+/* External-link favicons in the header (InfoAmazonia leaf JPG + Data360
+   globe ICO). Both ship with light backgrounds baked in, so on the dark
+   theme they print as harsh white squares. Give them a unified soft pill
+   that scales them down and rounds the corners. */
+#header a[href^="http"] img,
+header a[href^="http"] img {
+  width: 22px !important;
+  height: 22px !important;
+  border-radius: 4px;
+  background: transparent;
+  transition: background 120ms, transform 120ms;
+}
+.dark #header a[href^="http"] img,
+.dark header a[href^="http"] img {
+  background: rgba(255, 255, 255, 0.95);
+  padding: 1px;
+  box-sizing: border-box;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.08);
+}
+#header a[href^="http"]:hover img,
+header a[href^="http"]:hover img {
+  transform: scale(1.06);
+}
+
+/* =====================================================================
+   Sidebar group label — newsroom eyebrow
+   ===================================================================== */
+[data-sidebar="group-label"] {
+  font-family: var(--font-body) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  color: var(--neutral-600) !important;
+}
+
+.dark [data-sidebar="group-label"] {
+  color: hsl(213 9% 60%) !important;
+}
+
+/* =====================================================================
+   User message bubble — neutral, not olive
+   ===================================================================== */
+.bg-accent.rounded-3xl,
+div[class*="bg-accent"][class*="rounded-3xl"] {
+  background-color: hsl(var(--secondary)) !important;
+}
+
+/* =====================================================================
+   Send button — olive (overrides shadcn primary) on the composer
+   ===================================================================== */
+#chat-submit {
+  background-color: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+}
+#chat-submit:hover:not(:disabled) {
+  background-color: hsl(82 67% 24%) !important;  /* darker olive */
+}
+
+/* =====================================================================
+   Composer toolbar — Tools button + slash-command pill
+   ---------------------------------------------------------------------
+   Chainlit ships:
+   - #command-button (the "Tools" trigger): bare icon + text, no container
+   - selected slash-commands as a pill with class `text-command` and a
+     hardcoded #0066FF blue in the bundle CSS
+   The blue clashes with the olive palette and the tools icon looks
+   unfinished. Reground both in brand colors.
+   ===================================================================== */
+
+/* The "Tools" trigger — wrap it in a soft pill so it sits with intent. */
+#command-button {
+  background-color: hsl(var(--secondary)) !important;
+  color: hsl(var(--muted-foreground)) !important;
+  border-radius: 999px !important;
+  padding: 0 12px !important;
+  height: 34px !important;
+  transition: background-color 120ms, color 120ms;
+}
+#command-button:hover,
+#command-button[aria-expanded="true"],
+#command-button[data-state="open"] {
+  background-color: hsl(var(--accent)) !important;
+  color: hsl(var(--foreground)) !important;
+}
+#command-button svg {
+  color: hsl(var(--muted-foreground)) !important;
+}
+#command-button:hover svg,
+#command-button[aria-expanded="true"] svg {
+  color: hsl(var(--primary)) !important;
+}
+
+/* Paperclip / upload button — same gentle hover language */
+#upload-button:hover {
+  background-color: hsl(var(--accent)) !important;
+  color: hsl(var(--primary)) !important;
+}
+
+/* Selected slash-command pill (e.g. "dossier") — kill the bundle blue,
+   replace with our brand olive on a tinted pill. */
+.text-command,
+[class*="text-command"] {
+  color: hsl(var(--primary)) !important;
+}
+.dark .text-command,
+.dark [class*="text-command"] {
+  color: hsl(var(--primary)) !important;  /* primary already flips to leaf */
+}
+
+/* The pill container. The command UI in the composer is a button whose
+   children include a lucide icon (panel-right-open for /dossier) + the
+   command name + an × clear button. Target it via :has() on the icon —
+   matches whichever command the user selected. */
+[id="message-composer"] button:has(svg.lucide-panel-right-open),
+[id="message-composer"] button:has([class*="lucide-panel"]),
+[id="message-composer"] button.text-command,
+[id="message-composer"] [class*="command"] button.text-command {
+  background-color: hsl(var(--primary) / 0.10) !important;
+  border: 1px solid hsl(var(--primary) / 0.28) !important;
+  border-radius: 999px !important;
+  padding: 4px 10px 4px 8px !important;
+  height: auto !important;
+  gap: 6px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.01em !important;
+}
+[id="message-composer"] button:has(svg.lucide-panel-right-open):hover,
+[id="message-composer"] button:has([class*="lucide-panel"]):hover,
+[id="message-composer"] button.text-command:hover {
+  background-color: hsl(var(--primary) / 0.18) !important;
+  border-color: hsl(var(--primary) / 0.45) !important;
+}
+
+/* The × button inside the command pill — quieter on resting state. */
+[id="message-composer"] button:has(svg.lucide-panel-right-open) svg.lucide-x,
+[id="message-composer"] button.text-command svg.lucide-x {
+  opacity: 0.6;
+  transition: opacity 120ms;
+}
+[id="message-composer"] button:hover svg.lucide-x {
+  opacity: 1;
+}
+
+/* =====================================================================
+   Citation chip
+   ===================================================================== */
+.citation-chip, .cite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin: 0 1px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1;
+  color: hsl(var(--primary));
+  background: hsl(var(--primary) / 0.10);
+  border: 1px solid hsl(var(--primary) / 0.25);
+  border-radius: 3px;
+  vertical-align: 0.15em;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 120ms ease, color 120ms ease;
+}
+.citation-chip:hover, .cite:hover {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+/* =====================================================================
+   Data Sources block
+   ===================================================================== */
+.data-sources {
+  margin-top: 1.5rem;
+  padding: 12px 16px;
+  background: var(--citation-bg);
+  border: 1px solid var(--citation-border);
+  border-radius: 4px;
+  color: var(--citation-fg);
+  font-size: 13px;
+}
+.data-sources h4 {
+  font-size: 11px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--brand-olive);
+  margin: 0 0 6px;
+}
+.data-sources ol { padding-left: 18px; margin: 0; }
+.data-sources li { margin-bottom: 4px; line-height: 1.45; }
+
+/* =====================================================================
+   Pauta Sugerida
+   ===================================================================== */
+blockquote.pauta-sugerida,
+.pauta-sugerida {
+  position: relative;
+  margin: 1.25rem 0;
+  padding: 12px 14px 12px 38px;
+  background: rgba(89,129,26,0.06);
+  border: 1px solid rgba(89,129,26,0.20);
+  border-left: 3px solid var(--brand-olive);
+  border-radius: 3px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.pauta-sugerida::before {
+  content: "✦";
+  position: absolute;
+  left: 14px;
+  top: 12px;
+  color: var(--brand-olive);
+  font-size: 14px;
+}
+
+/* =====================================================================
+   Dossier card (right rail) — works in both themes
+   ===================================================================== */
+.dossier-card {
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border)) !important;
+  border-radius: 6px !important;
+  box-shadow: var(--shadow-1) !important;
+  position: relative;
+}
+
+/* Editorial olive bar on the card head — quiet but signals "publication" */
+.dossier-card-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 12px 16px !important;
+  border-bottom: 1px solid hsl(var(--border)) !important;
+  font-family: var(--font-display) !important;
+  position: relative;
+}
+.dossier-card-head::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 12px; bottom: 12px;
+  width: 3px;
+  background: var(--brand-olive);
+  border-radius: 0 2px 2px 0;
+}
+.dark .dossier-card-head::before {
+  background: var(--brand-leaf);
+}
+.dossier-card-head .title {
+  font-family: var(--font-display) !important;
+  font-weight: 700 !important;
+  font-size: 16px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  padding-left: 6px;
+}
+.dossier-card-head .v {
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  color: hsl(var(--muted-foreground)) !important;
+  padding: 2px 6px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+}
+
+.dossier-card-body {
+  padding: 20px 22px !important;
+  font-size: 14px !important;
+  line-height: 1.65 !important;
+  overflow-y: auto;
+}
+
+/* Body headings inside the dossier */
+.dossier-card-body h1 {
+  font-family: var(--font-display) !important;
+  font-weight: 700 !important;
+  font-size: 26px !important;
+  text-transform: uppercase !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1.1 !important;
+  margin: 0 0 8px !important;
+}
+.dossier-card-body h2 {
+  font-family: var(--font-display) !important;
+  font-weight: 700 !important;
+  font-size: 18px !important;
+  margin: 20px 0 6px !important;
+}
+
+/* Empty state — bump contrast in BOTH themes so it reads like editorial
+   stage direction, not a faded toast. */
+.dossier-card-body .empty-state {
+  font-size: 13.5px !important;
+  line-height: 1.6 !important;
+  color: hsl(var(--foreground) / 0.72) !important;
+  font-style: italic;
+  position: relative;
+  padding-left: 14px;
+  border-left: 2px solid hsl(var(--primary) / 0.4);
+  margin: 4px 0 0;
+}
+.dark .dossier-card-body .empty-state {
+  color: hsl(var(--foreground) / 0.78) !important;
+  border-left-color: hsl(var(--primary) / 0.5);
+}
+
+/* =====================================================================
+   Focus ring across the app
+   ===================================================================== */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+/* Lucide stroke */
+svg.lucide, [class*="lucide"] { stroke-width: 1.5; }

@@ -93,7 +93,11 @@ start svc="all":
             echo "   Fix: just stop chainlit"; exit 1
         fi
         fmt "🌐" "Chainlit" "starting..."
-        nohup uv run chainlit run app/chat.py --port {{app_port}} --root-path {{root_path}} --headless > {{log_dir}}/app.log 2>&1 &
+        root_path_args=()
+        if [ -n "{{root_path}}" ] && [ "{{root_path}}" != "/" ]; then
+            root_path_args=(--root-path "{{root_path}}")
+        fi
+        nohup uv run chainlit run app/chat.py --port {{app_port}} ${root_path_args[@]+"${root_path_args[@]}"} --headless > {{log_dir}}/app.log 2>&1 &
         local real_pid=$(resolve_pid {{app_port}} 20)
         if [ -n "$real_pid" ]; then
             echo "$real_pid" > "$pidfile"

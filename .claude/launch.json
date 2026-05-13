@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "chainlit",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "chainlit", "run", "app/chat.py", "--port", "8000", "--headless"],
+      "port": 8000
+    }
+  ]
+}
