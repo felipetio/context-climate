@@ -1773,7 +1773,9 @@ class TestReopenDossierCanvas:
             await reload_chat.reopen_dossier_canvas()
 
         sidebar_mock.set_title.assert_awaited_once_with("Dossier")
-        sidebar_mock.set_elements.assert_awaited_once_with([existing_doc], key="dossier-canvas")
+        # No key — reopen must NOT pass key="dossier-canvas" or Chainlit's deduplication
+        # guard silently drops the call when the sidebar is already open (bug fix).
+        sidebar_mock.set_elements.assert_awaited_once_with([existing_doc])
         # Must NOT create a new CustomElement
         custom_element_mock.assert_not_called()
         # Must NOT mutate the session doc reference
@@ -1809,7 +1811,7 @@ class TestReopenDossierCanvas:
         assert sidebar_mock.set_elements.await_count == 2
         for call in sidebar_mock.set_elements.await_args_list:
             assert call.args == ([existing_doc],)
-            assert call.kwargs == {"key": "dossier-canvas"}
+            assert call.kwargs == {}  # no key — bug fix: key triggers dedup guard
         custom_element_mock.assert_not_called()
 
 
@@ -1832,8 +1834,9 @@ class TestOpenDossierCanvasIdempotency:
 
         # Must NOT create a second CustomElement
         custom_element_mock.assert_not_called()
-        # Must re-attach the existing doc via the sidebar
-        sidebar_mock.set_elements.assert_awaited_once_with([existing_doc], key="dossier-canvas")
+        # Must re-attach the existing doc via the sidebar — no key (bug fix: reopen must not
+        # pass key="dossier-canvas" or Chainlit's dedup guard silently drops the call).
+        sidebar_mock.set_elements.assert_awaited_once_with([existing_doc])
         # Must NOT overwrite the session doc
         session_mock.set.assert_not_called()
 

@@ -78,7 +78,11 @@ async def reopen_dossier_canvas() -> None:
         await open_dossier_canvas()
         return
     await cl.ElementSidebar.set_title("Dossier")
-    await cl.ElementSidebar.set_elements([doc], key="dossier-canvas")
+    # No key here — passing key="dossier-canvas" would trigger Chainlit's
+    # deduplication guard ("already opened with same key → skip"), making every
+    # reopen call after the first one a silent no-op. The key is only used in
+    # open_dossier_canvas (first open) to prevent flicker on duplicate calls.
+    await cl.ElementSidebar.set_elements([doc])
 
 
 _INVESTIGATION_ITEMS: tuple[str, ...] = (
@@ -151,7 +155,7 @@ _DOSSIER_COMMANDS: list[dict[str, Any]] = [
         "id": "dossier",
         "description": "Reopen the dossier panel",
         "icon": "panel-right-open",
-        "button": False,
+        "button": True,
         "persistent": False,
     },
 ]
@@ -174,6 +178,7 @@ async def update_dossier_content(content: str) -> None:
         return
     doc.props["content"] = content
     doc.props["version"] += 1
+    doc.content = json.dumps(doc.props)  # re-sync: CustomElement.content is set only once
     await doc.update()
 
 
@@ -340,11 +345,13 @@ async def _handle_apply_ops(tool_input: dict) -> str:
         if err is not None:
             doc.props["content"] = original_content
             doc.props["version"] = original_version
+            doc.content = json.dumps(doc.props)  # re-sync before update (CustomElement.content is set only once)
             await doc.update()
             return err
         current_content = new_content
         doc.props["content"] = current_content
         doc.props["version"] = int(doc.props.get("version", 0)) + 1
+        doc.content = json.dumps(doc.props)  # re-sync before update
         await doc.update()
         await asyncio.sleep(0.03)
 
