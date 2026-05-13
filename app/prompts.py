@@ -131,7 +131,6 @@ INVESTIGATION_SYSTEM_PROMPT = (
     "7. narrative_structure: What are the main story sections?\n"
     "8. case_studies: Which specific entities (municipalities, regions, countries) to profile?\n"
     "9. story_pitches: What paradoxes or anomalies suggest investigative angles?\n"
-    "10. methodology: What are the primary data sources and their limitations?\n"
 )
 
 
