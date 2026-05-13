@@ -402,7 +402,9 @@ class TestErrorHandling:
         assert sent_messages[0].content.startswith("⚠️")
 
 
-def _make_session_mock_with_history(history=None, mcp_session=None, mcp_tools=None, dossier=None, doc=None):
+def _make_session_mock_with_history(
+    history=None, mcp_session=None, mcp_tools=None, dossier=None, doc=None, investigation=None
+):
     """Return a cl.user_session mock that serves the given values by key."""
     store = {
         "history": history if history is not None else [],
@@ -410,6 +412,7 @@ def _make_session_mock_with_history(history=None, mcp_session=None, mcp_tools=No
         "mcp_tools": mcp_tools if mcp_tools is not None else [],
         "dossier": dossier,
         "doc": doc,
+        "investigation": investigation,
     }
 
     def fake_get(key, default=None):
@@ -1949,3 +1952,255 @@ class TestDossierSlashCommand:
         assert commands[0]["id"] == "dossier"
         assert "description" in commands[0]
         assert "icon" in commands[0]
+
+
+_INVESTIGATION_KEYS = (
+    "topic_definition",
+    "geography_scope",
+    "time_range",
+    "target_audience",
+    "data_sources_validation",
+    "key_stats_capture",
+    "narrative_structure",
+    "case_studies",
+    "story_pitches",
+    "methodology",
+)
+
+
+class TestInvestigationSessionState:
+    """Story 11.1: investigation checklist state, helper, and snapshot formatting."""
+
+    async def test_on_chat_start_initializes_investigation_state(self, reload_chat):
+        """AC1: on_chat_start seeds the 10-item investigation dict before sending welcome."""
+        stored = {}
+
+        @contextlib.asynccontextmanager
+        async def failing_client(url, **kwargs):
+            raise ConnectionError("no MCP")
+            yield  # pragma: no cover
+
+        with (
+            patch("app.chat.streamablehttp_client", failing_client),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.Message") as msg_cls,
+            patch("app.chat._register_dossier_commands", new=AsyncMock()),
+            patch("app.chat.open_dossier_canvas", new=AsyncMock()),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            msg_cls.return_value.send = AsyncMock()
+            await reload_chat.on_chat_start()
+
+        investigation = stored.get("investigation")
+        assert isinstance(investigation, dict)
+        assert tuple(investigation.keys()) == _INVESTIGATION_KEYS
+        for entry in investigation.values():
+            assert entry == {"done": False, "value": None}
+
+    async def test_on_chat_resume_initializes_investigation_state(self, reload_chat):
+        """AC2: on_chat_resume re-seeds the 10-item investigation dict (fresh, not persisted)."""
+        stored = {}
+
+        @contextlib.asynccontextmanager
+        async def failing_client(url, **kwargs):
+            raise ConnectionError("no MCP")
+            yield  # pragma: no cover
+
+        with (
+            patch("app.chat.streamablehttp_client", failing_client),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.open_dossier_canvas", new=AsyncMock()),
+            patch("app.chat._register_dossier_commands", new=AsyncMock()),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.on_chat_resume({"steps": []})
+
+        investigation = stored.get("investigation")
+        assert isinstance(investigation, dict)
+        assert tuple(investigation.keys()) == _INVESTIGATION_KEYS
+        for entry in investigation.values():
+            assert entry == {"done": False, "value": None}
+
+    async def test_update_investigation_item_marks_done_and_returns_ok(self, reload_chat):
+        """AC3: known item_id mutates state and returns the contract dict."""
+        store = {"investigation": reload_chat._empty_investigation_state()}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            result = reload_chat.update_investigation_item("topic_definition", "Climate adaptation in NE Brazil")
+
+        assert result == {
+            "status": "ok",
+            "item": "topic_definition",
+            "items_done": 1,
+            "phase_gate_reached": False,
+        }
+        assert store["investigation"]["topic_definition"] == {
+            "done": True,
+            "value": "Climate adaptation in NE Brazil",
+        }
+
+    async def test_update_investigation_item_is_idempotent(self, reload_chat):
+        """AC3: calling twice for the same item still reports items_done == 1."""
+        store = {"investigation": reload_chat._empty_investigation_state()}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            reload_chat.update_investigation_item("topic_definition", "v1")
+            result = reload_chat.update_investigation_item("topic_definition", "v2")
+
+        assert result["items_done"] == 1
+        # Latest write wins
+        assert store["investigation"]["topic_definition"]["value"] == "v2"
+
+    async def test_update_investigation_item_counts_done_items(self, reload_chat):
+        """AC3: items_done reflects the count of done == True items, not call count."""
+        store = {"investigation": reload_chat._empty_investigation_state()}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            reload_chat.update_investigation_item("topic_definition", "x")
+            result = reload_chat.update_investigation_item("geography_scope", "Brazil")
+
+        assert result["items_done"] == 2
+        assert result["item"] == "geography_scope"
+
+    async def test_update_investigation_item_unknown_id_returns_error(self, reload_chat, caplog):
+        """AC3: unknown item_id returns error, mutates nothing, emits no DEBUG."""
+        store = {"investigation": reload_chat._empty_investigation_state()}
+        snapshot = {k: dict(v) for k, v in store["investigation"].items()}
+
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            with caplog.at_level("DEBUG", logger="app.chat"):
+                result = reload_chat.update_investigation_item("bogus", "irrelevant")
+
+        assert result == {"error": "Unknown item_id: 'bogus'"}
+        assert store["investigation"] == snapshot
+        assert not any("[INVESTIGATION]" in rec.message for rec in caplog.records)
+
+    async def test_update_investigation_item_logs_debug(self, reload_chat, caplog):
+        """AC3: DEBUG log is emitted with the canonical [INVESTIGATION] format."""
+        store = {"investigation": reload_chat._empty_investigation_state()}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            with caplog.at_level("DEBUG", logger="app.chat"):
+                reload_chat.update_investigation_item("topic_definition", "Climate")
+
+        assert any(
+            rec.levelname == "DEBUG"
+            and "[INVESTIGATION] item=topic_definition status=complete value=Climate" in rec.message
+            for rec in caplog.records
+        )
+
+    async def test_format_investigation_snapshot_includes_all_ten_items_in_order(self, reload_chat):
+        """AC4c: snapshot lists all items in declared order, marks done with values."""
+        state = reload_chat._empty_investigation_state()
+        state["topic_definition"] = {"done": True, "value": "Climate adaptation"}
+        state["geography_scope"] = {"done": True, "value": "Brazil"}
+
+        snapshot = reload_chat._format_investigation_snapshot(state)
+
+        assert snapshot.startswith("[Investigation state:")
+        assert snapshot.endswith("]")
+
+        lines = snapshot.splitlines()
+        # Opener + 10 items + closer = 12 lines
+        assert len(lines) == 12
+
+        # Order preserved
+        for idx, key in enumerate(_INVESTIGATION_KEYS):
+            assert key in lines[idx + 1]
+
+        # Done markers
+        assert "[x] topic_definition: Climate adaptation" in snapshot
+        assert "[x] geography_scope: Brazil" in snapshot
+        # Not-done items rendered without value
+        assert "[ ] time_range" in snapshot
+        assert ": " not in lines[3]  # time_range line has no value suffix
+
+    async def test_format_investigation_snapshot_truncates_long_values(self, reload_chat):
+        """Snapshot caps value strings at 120 chars to keep prompt bounded."""
+        state = reload_chat._empty_investigation_state()
+        state["topic_definition"] = {"done": True, "value": "x" * 200}
+
+        snapshot = reload_chat._format_investigation_snapshot(state)
+
+        # 117 chars of 'x' plus the '...' suffix
+        assert ("x" * 117 + "...") in snapshot
+        assert ("x" * 200) not in snapshot
+
+
+class TestAgenticLoopInvestigationSnapshot:
+    """Story 11.1 AC4: snapshot is appended to the system prompt only in investigating phase."""
+
+    async def test_investigation_phase_appends_snapshot_to_system_prompt(self, reload_chat):
+        """AC4a: investigating-phase system prompt contains the snapshot marker."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        investigation_state = reload_chat._empty_investigation_state()
+        investigation_state["topic_definition"] = {"done": True, "value": "Climate adaptation"}
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(investigation=investigation_state),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hi"
+            await reload_chat.on_message(incoming)
+
+        system_prompt = captured_call_kwargs.get("system", "")
+        assert INVESTIGATION_SYSTEM_PROMPT in system_prompt
+        assert "[Investigation state:" in system_prompt
+        assert "[x] topic_definition: Climate adaptation" in system_prompt
+
+    async def test_dossier_phase_does_not_append_investigation_snapshot(self, reload_chat):
+        """AC4b: dossier-phase system prompt must NOT contain the investigation snapshot
+        (regression guard for Story 10.4's [Current document (vN): ...] framing).
+        """
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "# Dossier", "version": 1}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        investigation_state = reload_chat._empty_investigation_state()
+        investigation_state["topic_definition"] = {"done": True, "value": "ignored in dossier phase"}
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(
+                    dossier={"phase": "dossier"},
+                    doc=doc_mock,
+                    investigation=investigation_state,
+                ),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "edit"
+            await reload_chat.on_message(incoming)
+
+        system_prompt = captured_call_kwargs.get("system", "")
+        assert "[Current document (v1):" in system_prompt
+        assert "[Investigation state:" not in system_prompt
