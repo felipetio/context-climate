@@ -224,7 +224,7 @@ body[data-cc-login-staged] .cc-form-col {
 }
 .cc-brand-mark { width: 24px; height: 24px; flex-shrink: 0; }
 .cc-brand-name {
-  font-family: var(--font-display);
+  font-family: var(--font-display) !important;
   font-weight: 700;
   font-size: 22px;
   text-transform: uppercase;
@@ -352,7 +352,7 @@ body[data-cc-login-staged] .cc-hero-col {
   flex-direction: column !important;
   padding: 48px 56px !important;
   overflow: hidden !important;
-  background-image: url("/public/login-bg.jpg") !important;
+  background-image: url("login-bg.jpg") !important;
   background-size: cover !important;
   background-position: center !important;
   background-color: var(--brand-forest) !important;
@@ -390,7 +390,7 @@ body[data-cc-login-staged] .cc-hero-col::before {
 }
 .cc-pull {
   margin: auto 0 0;
-  font-family: var(--font-display);
+  font-family: var(--font-display) !important;
   font-weight: 700;
   font-size: clamp(56px, 6.5vw, 92px);
   line-height: 0.95;
@@ -428,7 +428,7 @@ body[data-cc-login-staged] .cc-hero-col::before {
   color: rgba(255,255,255,0.85);
 }
 .cc-credit {
-  font-family: var(--font-display);
+  font-family: var(--font-display) !important;
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -445,9 +445,7 @@ body[data-cc-login-staged] .cc-hero-col::before {
 /* =====================================================================
    Typography — newsroom register
    ===================================================================== */
-html,
-body,
-body *:not(pre):not(code):not(kbd):not(samp):not([class*="mono" i]):not(.font-mono) {
+:where(html, body, body *:not(pre):not(code):not(kbd):not(samp):not([class*="mono" i]):not(.font-mono)) {
   font-family: var(--font-body) !important;
 }
 
@@ -680,7 +678,7 @@ div[class*="bg-accent"][class*="rounded-3xl"] {
   height: 18px;
   padding: 0 5px;
   margin: 0 1px;
-  font-family: var(--font-display);
+  font-family: var(--font-display) !important;
   font-weight: 700;
   font-size: 11px;
   line-height: 1;
