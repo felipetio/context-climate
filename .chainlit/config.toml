@@ -134,14 +134,14 @@ custom_fonts = [
 
 # Custom stylesheet for everything theme.json can't reach
 # (Open Sans Condensed display weight, metadata grey, citation chip, etc).
-custom_css = "/public/custom.css"
+custom_css = "/public/custom.css?v=4"
 
 # Specify additional attributes for a custom CSS file
 # custom_css_attributes = "media=\"print\""
 
 # Specify a JavaScript file that can be used to customize the user interface.
 # The JavaScript file can be served from the public directory.
-custom_js = "/public/login-customize.js"
+custom_js = "/public/login-customize.js?v=3"
 
 # The style of alert boxes. Can be "classic" or "modern".
 alert_style = "modern"

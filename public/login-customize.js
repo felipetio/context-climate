@@ -143,10 +143,31 @@
     return true;
   }
 
+  // Bust the cache for Chainlit-served images (avatar + splash logo) so users
+  // who hit the app before /avatars/{name} and /logo were customised get the
+  // current responses instead of the cached Chainlit defaults.
+  const CHAINLIT_IMG_BUST = "data-cc-img-bust";
+  const IMG_VERSION = "v2";
+  const BUST_SELECTOR = 'img[alt^="Avatar for "], img[alt="logo"]';
+  function bustChainlitImages(root) {
+    const imgs = root.querySelectorAll
+      ? root.querySelectorAll(BUST_SELECTOR)
+      : [];
+    imgs.forEach((img) => {
+      if (img.hasAttribute(CHAINLIT_IMG_BUST)) return;
+      const u = new URL(img.src, location.href);
+      if (u.searchParams.get("ccv") === IMG_VERSION) return;
+      u.searchParams.set("ccv", IMG_VERSION);
+      img.setAttribute(CHAINLIT_IMG_BUST, "1");
+      img.src = u.toString();
+    });
+  }
+
   // Run on first paint, then keep watching for SPA route changes / hydration.
   let observer;
   function start() {
     stageLoginPage();
+    bustChainlitImages(document);
     observer = new MutationObserver(() => {
       if (!document.body.hasAttribute(STAGED) && isLoginDom()) {
         stageLoginPage();
@@ -154,6 +175,7 @@
         // Navigated away from login — drop the marker so we'd re-run on return.
         document.body.removeAttribute(STAGED);
       }
+      bustChainlitImages(document);
     });
     observer.observe(document.body, { subtree: true, childList: true });
   }
