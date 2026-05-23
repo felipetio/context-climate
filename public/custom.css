@@ -622,51 +622,6 @@ div[class*="bg-accent"][class*="rounded-3xl"] {
   color: hsl(var(--primary)) !important;
 }
 
-/* Selected slash-command pill (e.g. "dossier") — kill the bundle blue,
-   replace with our brand olive on a tinted pill. */
-.text-command,
-[class*="text-command"] {
-  color: hsl(var(--primary)) !important;
-}
-.dark .text-command,
-.dark [class*="text-command"] {
-  color: hsl(var(--primary)) !important;  /* primary already flips to leaf */
-}
-
-/* The pill container. The command UI in the composer is a button whose
-   children include a lucide icon (panel-right-open for /dossier) + the
-   command name + an × clear button. Target it via :has() on the icon —
-   matches whichever command the user selected. */
-[id="message-composer"] button:has(svg.lucide-panel-right-open),
-[id="message-composer"] button:has([class*="lucide-panel"]),
-[id="message-composer"] button.text-command,
-[id="message-composer"] [class*="command"] button.text-command {
-  background-color: hsl(var(--primary) / 0.10) !important;
-  border: 1px solid hsl(var(--primary) / 0.28) !important;
-  border-radius: 999px !important;
-  padding: 4px 10px 4px 8px !important;
-  height: auto !important;
-  gap: 6px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.01em !important;
-}
-[id="message-composer"] button:has(svg.lucide-panel-right-open):hover,
-[id="message-composer"] button:has([class*="lucide-panel"]):hover,
-[id="message-composer"] button.text-command:hover {
-  background-color: hsl(var(--primary) / 0.18) !important;
-  border-color: hsl(var(--primary) / 0.45) !important;
-}
-
-/* The × button inside the command pill — quieter on resting state. */
-[id="message-composer"] button:has(svg.lucide-panel-right-open) svg.lucide-x,
-[id="message-composer"] button.text-command svg.lucide-x {
-  opacity: 0.6;
-  transition: opacity 120ms;
-}
-[id="message-composer"] button:hover svg.lucide-x {
-  opacity: 1;
-}
-
 /* =====================================================================
    Citation chip
    ===================================================================== */
