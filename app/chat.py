@@ -56,35 +56,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-async def open_dossier_canvas() -> None:
-    # Idempotent: if a doc already exists in the session, re-attach it instead of
-    # creating a second CustomElement (closes Story 10.2 deferred review finding).
-    if cl.user_session.get("doc") is not None:
-        await reopen_dossier_canvas()
-        return
-    doc = cl.CustomElement(
-        name="Document",
-        props={"content": "", "version": 0, "phase": "investigating"},
-        display="inline",
-    )
-    await cl.ElementSidebar.set_title("Dossier")
-    await cl.ElementSidebar.set_elements([doc], key="dossier-canvas")
-    cl.user_session.set("doc", doc)
-
-
-async def reopen_dossier_canvas() -> None:
-    doc = cl.user_session.get("doc")
-    if doc is None:
-        await open_dossier_canvas()
-        return
-    await cl.ElementSidebar.set_title("Dossier")
-    # No key here — passing key="dossier-canvas" would trigger Chainlit's
-    # deduplication guard ("already opened with same key → skip"), making every
-    # reopen call after the first one a silent no-op. The key is only used in
-    # open_dossier_canvas (first open) to prevent flicker on duplicate calls.
-    await cl.ElementSidebar.set_elements([doc])
-
-
 _INVESTIGATION_ITEMS: tuple[str, ...] = (
     "topic_definition",
     "geography_scope",
@@ -112,10 +83,14 @@ def _format_investigation_snapshot(state: dict[str, dict[str, Any]]) -> str:
         entry = state.get(item) if isinstance(state, dict) else None
         done = bool(entry.get("done")) if isinstance(entry, dict) else False
         marker = "x" if done else " "
+        value_repr = ""
         if done and isinstance(entry, dict) and entry.get("value") is not None:
-            value_repr = str(entry.get("value"))
+            # Collapse newlines so each item stays on exactly one line, then cap
+            # length to keep the snapshot bounded (Story 11.1 Dev Notes).
+            value_repr = str(entry.get("value")).replace("\r", " ").replace("\n", " ").strip()
             if len(value_repr) > 120:
                 value_repr = value_repr[:117] + "..."
+        if value_repr:
             lines.append(f"  [{marker}] {item}: {value_repr}")
         else:
             lines.append(f"  [{marker}] {item}")
@@ -139,6 +114,9 @@ def update_investigation_item(item_id: str, value: Any) -> dict[str, Any]:
         cl.user_session.set("investigation", state)
 
     state[item_id] = {"done": True, "value": value}
+    # Write back unconditionally — do not rely on cl.user_session.get() returning a
+    # live mutable reference (robust if a session backend ever returns a copy).
+    cl.user_session.set("investigation", state)
     logger.debug("[INVESTIGATION] item=%s status=complete value=%s", item_id, value)
 
     items_done = sum(1 for v in state.values() if isinstance(v, dict) and v.get("done"))
@@ -150,28 +128,6 @@ def update_investigation_item(item_id: str, value: Any) -> dict[str, Any]:
     }
 
 
-_DOSSIER_COMMANDS: list[dict[str, Any]] = [
-    {
-        "id": "dossier",
-        "description": "Reopen the dossier panel",
-        "icon": "panel-right-open",
-        "button": True,
-        "persistent": False,
-    },
-]
-
-
-async def _register_dossier_commands() -> None:
-    # Chainlit 2.10 does not expose `cl.set_commands` at the module level —
-    # the public path is the per-session emitter on `cl.context`.
-    await cl.context.emitter.set_commands(_DOSSIER_COMMANDS)
-
-
-@cl.action_callback("show_dossier")
-async def on_show_dossier(_action: cl.Action) -> None:
-    await reopen_dossier_canvas()
-
-
 async def update_dossier_content(content: str) -> None:
     doc = cl.user_session.get("doc")
     if doc is None:
@@ -180,6 +136,92 @@ async def update_dossier_content(content: str) -> None:
     doc.props["version"] += 1
     doc.content = json.dumps(doc.props)  # re-sync: CustomElement.content is set only once
     await doc.update()
+    await _refresh_dossier_canvas()
+
+
+# ---------------------------------------------------------------------------
+# On-demand canvas reveal (Story 10.6)
+# ---------------------------------------------------------------------------
+# The dossier canvas is created lazily and revealed only via an explicit
+# affordance once the session enters dossier phase. It is never opened at chat
+# start/resume (PR #64 removed the always-open canvas as poor UX). Creation
+# (`ensure_dossier_doc`) and reveal (`reveal_dossier_canvas`) are deliberately
+# separate concerns. The decision to *post* the reveal affordance lives in the
+# phase gate (Story 11.3), not here.
+
+
+def ensure_dossier_doc() -> cl.CustomElement:
+    """Lazily create the dossier ``Document`` element, or return the existing one.
+
+    Idempotent: reuses ``cl.user_session["doc"]`` when present so we never orphan a
+    ``CustomElement`` (which would lose prop sync). Creates the element with
+    ``phase="dossier"`` so ``Document.jsx`` renders the editable view, not the
+    investigating placeholder. Does NOT open the sidebar.
+    """
+    doc = cl.user_session.get("doc")
+    if doc is not None:
+        return doc
+    doc = cl.CustomElement(
+        name="Document",
+        props={"content": "", "version": 0, "phase": "dossier"},
+        display="inline",
+    )
+    cl.user_session.set("doc", doc)
+    return doc
+
+
+async def reveal_dossier_canvas() -> None:
+    """Open the dossier canvas in the right-side ``ElementSidebar``.
+
+    Ensures a ``doc`` exists first, then reveals it. Idempotent: reuses the same
+    element reference, so repeated reveals never orphan elements.
+    """
+    doc = ensure_dossier_doc()
+    cl.user_session.set("dossier_revealed", True)
+    await cl.ElementSidebar.set_title("Dossier")
+    # Version-stamped key: ElementSidebar ignores set_elements when the key is
+    # unchanged, so a fixed key would freeze the panel after the first render.
+    await cl.ElementSidebar.set_elements([doc], key=f"dossier-v{doc.props.get('version', 0)}")
+
+
+async def _refresh_dossier_canvas() -> None:
+    """Re-render the revealed dossier canvas with the current ``doc`` state.
+
+    Chainlit's ``ElementSidebar`` renders from its own snapshot taken at
+    ``set_elements`` time: ``doc.update()`` does NOT refresh a sidebar-hosted
+    element, and ``set_elements`` with an unchanged key is a no-op. So we re-run
+    ``set_elements`` with a version-stamped key to force the sidebar to replace
+    its snapshot. No-op until the canvas has been revealed, so content updates
+    never force the panel open (AC4; Story 11.4 ``propose_structure`` populates
+    the doc silently before the journalist opens it).
+    """
+    if not cl.user_session.get("dossier_revealed"):
+        return
+    doc = cl.user_session.get("doc")
+    if doc is None:
+        return
+    await cl.ElementSidebar.set_elements([doc], key=f"dossier-v{doc.props.get('version', 0)}")
+
+
+async def post_dossier_reveal_affordance() -> None:
+    """Post the one-click "Open dossier" affordance to chat.
+
+    Called by the phase gate (Story 11.3) when the session transitions to dossier
+    phase. Renders a single ``cl.Action``; the canvas is NOT auto-opened. There is
+    no ``/dossier`` command and no persistent welcome button.
+    """
+    await cl.Message(
+        content="Your dossier is ready.",
+        actions=[cl.Action(name="reveal_dossier", label="📄 Open dossier", payload={})],
+    ).send()
+
+
+@cl.action_callback("reveal_dossier")
+async def on_reveal_dossier(action: cl.Action) -> None:
+    """Reveal the dossier canvas when the journalist clicks "Open dossier"."""
+    await reveal_dossier_canvas()
+    # One-shot affordance: remove it after use so it doesn't linger in chat.
+    await action.remove()
 
 
 # ---------------------------------------------------------------------------
@@ -347,12 +389,14 @@ async def _handle_apply_ops(tool_input: dict) -> str:
             doc.props["version"] = original_version
             doc.content = json.dumps(doc.props)  # re-sync before update (CustomElement.content is set only once)
             await doc.update()
+            await _refresh_dossier_canvas()
             return err
         current_content = new_content
         doc.props["content"] = current_content
         doc.props["version"] = int(doc.props.get("version", 0)) + 1
         doc.content = json.dumps(doc.props)  # re-sync before update
         await doc.update()
+        await _refresh_dossier_canvas()
         await asyncio.sleep(0.03)
 
     dossier = cl.user_session.get("dossier")
@@ -529,19 +573,9 @@ async def on_chat_resume(thread: dict) -> None:
     history = history[-max_msgs:]
     cl.user_session.set("history", history)
 
-    # Resumed threads need the dossier canvas re-seeded — the previous
-    # CustomElement reference lives only in the prior process's memory.
+    # Re-initialise dossier session state on resume.
     cl.user_session.set("dossier", {"phase": "investigating", "content": "", "version": 0})
     cl.user_session.set("investigation", _empty_investigation_state())
-    try:
-        await open_dossier_canvas()
-    except Exception:
-        logger.warning("Failed to open dossier canvas on chat resume", exc_info=True)
-
-    try:
-        await _register_dossier_commands()
-    except Exception:
-        logger.warning("Failed to register dossier slash command on chat resume", exc_info=True)
 
     # Close any existing MCP stack before reconnecting (prevents connection leaks)
     existing_stack = cl.user_session.get(_MCP_EXIT_STACK_KEY)
@@ -576,10 +610,6 @@ async def on_chat_resume(thread: dict) -> None:
 async def on_chat_start():
     cl.user_session.set("dossier", {"phase": "investigating", "content": "", "version": 0})
     cl.user_session.set("investigation", _empty_investigation_state())
-    try:
-        await open_dossier_canvas()
-    except Exception:
-        logger.warning("Failed to open dossier canvas on chat start", exc_info=True)
 
     cl.user_session.set("history", [])
     cl.user_session.set(_MCP_SESSION_KEY, None)
@@ -618,14 +648,8 @@ async def on_chat_start():
         logger.warning("MCP auto-connect failed, continuing without tools", exc_info=True)
         await stack.aclose()
 
-    try:
-        await _register_dossier_commands()
-    except Exception:
-        logger.warning("Failed to register dossier slash command on chat start", exc_info=True)
-
     await cl.Message(
         content="Welcome to Context Climate! Ask me about World Bank climate and development data.",
-        actions=[cl.Action(name="show_dossier", label="Show dossier", payload={})],
     ).send()
 
 
@@ -641,11 +665,6 @@ async def on_chat_end():
 
 @cl.on_message
 async def on_message(message: cl.Message):
-    # --- Slash command short-circuit (handled before agentic loop) ---
-    if getattr(message, "command", None) == "dossier":
-        await reopen_dossier_canvas()
-        return
-
     # --- RAG upload handling (only when RAG is enabled) ---
     upload_context_parts: list[str] = []
     if settings.rag_enabled and message.elements:

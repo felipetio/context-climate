@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-// TODO: replace with react-markdown when confirmed available in Chainlit's JSX bundle
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -32,24 +31,32 @@ export default function Document() {
 
   if (phase === "investigating") {
     return (
-      <Card className="h-full p-6 text-sm text-muted-foreground">
-        <div className="flex h-full flex-col justify-between">
-          <p>Investigation in progress. The dossier will appear here when we have enough context.</p>
-          <span className="self-end text-xs text-muted-foreground">v{version ?? 0}</span>
+      <Card className="dossier-card flex h-full flex-col">
+        <div className="dossier-card-head">
+          <span className="title">Dossier</span>
+          <span className="v">v{version ?? 0}</span>
+        </div>
+        <div className="dossier-card-body flex-1">
+          <p className="empty-state">
+            Investigation in progress. The dossier will appear here when we have enough context.
+          </p>
         </div>
       </Card>
     );
   }
 
   return (
-    <Card className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b p-2">
-        <span className="text-xs text-muted-foreground">v{version ?? 0}</span>
-        <Button size="sm" variant="outline" onClick={() => setIsEditing((v) => !v)}>
-          {isEditing ? "View" : "Edit"}
-        </Button>
+    <Card className="dossier-card flex h-full flex-col">
+      <div className="dossier-card-head">
+        <span className="title">Dossier</span>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <span className="v">v{version ?? 0}</span>
+          <Button size="sm" variant="outline" onClick={() => setIsEditing((v) => !v)}>
+            {isEditing ? "View" : "Edit"}
+          </Button>
+        </div>
       </div>
-      <div className="flex-1 overflow-auto p-4">
+      <div className="dossier-card-body flex-1">
         {isEditing ? (
           <textarea
             className="h-full w-full resize-none border-none bg-transparent font-mono text-sm outline-none"

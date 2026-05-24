@@ -1,6 +1,6 @@
 # Story 11.1: Investigation Session State
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -443,3 +443,14 @@ claude-opus-4-7
 |------------|-----------------------------------------------------------------------------------------|
 | 2026-05-13 | Story created via `bmad-create-story`. Status: ready-for-dev.                            |
 | 2026-05-13 | Implementation complete: investigation state initializer, `update_investigation_item` helper, snapshot injection into investigating-phase system prompt. 11 new tests, full suite green. Status: review. |
+
+---
+
+## Review Findings
+
+_Code review 2026-05-23 (adversarial 3-layer: Blind Hunter + Edge Case Hunter + Acceptance Auditor) against commit `078fe57`. Acceptance Auditor: all 6 ACs MET, project rules honored. Triage: 1 decision-needed, 2 patch, 1 deferred, 4 dismissed as noise._
+
+- [x] [Review][Decision] `methodology` (item 10) absent from `INVESTIGATION_SYSTEM_PROMPT` — **RESOLVED 2026-05-23: intentional, dismissed.** Items 6-10 are filled while building the dossier (Story 11.4 `propose_structure` generates the Methodology section), not during the interview, so the prompt trim in commit `9426aba` was deliberate. The snapshot/tool-enum inclusion of `methodology` is acceptable.
+- [x] [Review][Patch] `update_investigation_item` mutates session state in-place without write-back [`app/chat.py` `update_investigation_item`] — **FIXED 2026-05-23.** Added unconditional `cl.user_session.set("investigation", state)` after the mutation, so persistence no longer depends on `.get()` returning a live reference. Also closes the matching `deferred-work.md` item from the 11.2 review.
+- [x] [Review][Patch] `_format_investigation_snapshot` corrupts on multi-line / empty values [`app/chat.py` `_format_investigation_snapshot`] — **FIXED 2026-05-23.** Newlines/carriage-returns collapsed to spaces and trimmed; the `: value` suffix is only appended when the (sanitized) value is non-empty. Each checklist item now stays on exactly one line.
+- [x] [Review][Defer] `phase_gate_reached` hardcoded `False` [`app/chat.py` `update_investigation_item`] — deferred, by-design stub. Returns `False` even when all items are done; the live 11.2 tool now surfaces this to the model. Owned by **Story 11.3** (rewritten 2026-05-23 to compute the real gate). See `deferred-work.md`.
