@@ -2255,3 +2255,345 @@ class TestUpdateInvestigationItemTool:
         assert "[ ] topic_definition" in captured_systems[0]
         # Round 2: recorded with the supplied value
         assert "[x] topic_definition: Climate" in captured_systems[1]
+
+
+def _make_fake_ce_factory():
+    """Return (factory, created) where factory mimics cl.CustomElement(...).
+
+    The factory captures constructor kwargs into a MagicMock with a real `.props`
+    dict, a settable `.content`, and an awaitable `.update`. `created` accumulates
+    every element built so tests can assert how many were constructed.
+    """
+    created: list = []
+
+    def _factory(name=None, props=None, display=None, **_kwargs):
+        doc = MagicMock()
+        doc.props = dict(props) if props is not None else {}
+        doc.content = ""
+        doc.update = AsyncMock()
+        doc._ce_name = name
+        doc._ce_display = display
+        created.append(doc)
+        return doc
+
+    return _factory, created
+
+
+def _make_sidebar_mock():
+    """Return a MagicMock standing in for cl.ElementSidebar with async classmethods."""
+    sidebar = MagicMock()
+    sidebar.set_title = AsyncMock()
+    sidebar.set_elements = AsyncMock()
+    return sidebar
+
+
+@contextlib.asynccontextmanager
+async def _failing_mcp_client(url, **kwargs):
+    """streamablehttp_client stand-in that fails so on_chat_start/resume skip MCP."""
+    raise ConnectionError("no MCP")
+    yield  # pragma: no cover
+
+
+class TestOnDemandDossierReveal:
+    """Story 10.6: lazy doc creation + on-demand canvas reveal."""
+
+    async def test_ensure_dossier_doc_creates_doc_when_absent(self, reload_chat):
+        """AC2: creates a Document element with dossier-phase props when none exists."""
+        stored: dict = {}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            doc = reload_chat.ensure_dossier_doc()
+
+        assert doc is stored["doc"]
+        assert doc.props == {"content": "", "version": 0, "phase": "dossier"}
+        assert len(created) == 1
+        # AC2: creation must NOT open the sidebar.
+        sidebar.set_title.assert_not_called()
+        sidebar.set_elements.assert_not_called()
+
+    async def test_ensure_dossier_doc_is_idempotent(self, reload_chat):
+        """AC2: a second call returns the same element — no second CustomElement built."""
+        stored: dict = {}
+        factory, created = _make_fake_ce_factory()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            doc1 = reload_chat.ensure_dossier_doc()
+            doc2 = reload_chat.ensure_dossier_doc()
+
+        assert doc1 is doc2
+        assert len(created) == 1
+
+    async def test_reveal_dossier_canvas_opens_sidebar(self, reload_chat):
+        """AC3: reveal opens the ElementSidebar titled 'Dossier' with the doc."""
+        stored: dict = {}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.reveal_dossier_canvas()
+
+        sidebar.set_title.assert_awaited_once_with("Dossier")
+        sidebar.set_elements.assert_awaited_once()
+        args, kwargs = sidebar.set_elements.call_args
+        assert args[0] == [stored["doc"]]
+        # Version-stamped key so later set_elements calls are not ignored as no-ops.
+        assert kwargs.get("key") == "dossier-v0"
+        # Reveal marks the canvas revealed so subsequent updates refresh it.
+        assert stored.get("dossier_revealed") is True
+
+    async def test_reveal_dossier_canvas_reuses_existing_doc(self, reload_chat):
+        """AC3: reveal never constructs a new element when one already exists."""
+        existing = MagicMock()
+        existing.props = {"content": "# Hi", "version": 3, "phase": "dossier"}
+        stored: dict = {"doc": existing}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.reveal_dossier_canvas()
+            await reload_chat.reveal_dossier_canvas()
+
+        assert len(created) == 0  # no new CustomElement built
+        args, _ = sidebar.set_elements.call_args
+        assert args[0] == [existing]
+
+    async def test_post_dossier_reveal_affordance_sends_single_action(self, reload_chat):
+        """AC4: posts exactly one message carrying a single 'reveal_dossier' action."""
+        msg_mock = AsyncMock()
+        msg_mock.send = AsyncMock()
+        action_obj = MagicMock()
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock) as msg_cls,
+            patch("app.chat.cl.Action", return_value=action_obj) as action_cls,
+        ):
+            await reload_chat.post_dossier_reveal_affordance()
+
+        action_cls.assert_called_once_with(name="reveal_dossier", label="📄 Open dossier", payload={})
+        _, kwargs = msg_cls.call_args
+        assert kwargs.get("actions") == [action_obj]
+        msg_mock.send.assert_awaited_once()
+
+    async def test_reveal_dossier_action_callback_triggers_reveal(self, reload_chat):
+        """AC4: clicking the affordance invokes reveal_dossier_canvas()."""
+        action = MagicMock()
+        action.remove = AsyncMock()
+        with patch("app.chat.reveal_dossier_canvas", new=AsyncMock()) as reveal_mock:
+            await reload_chat.on_reveal_dossier(action)
+
+        reveal_mock.assert_awaited_once()
+        action.remove.assert_awaited_once()
+
+    async def test_on_chat_start_does_not_create_doc_or_open_sidebar(self, reload_chat):
+        """AC1 regression: chat start initializes state only — no doc, no sidebar."""
+        stored: dict = {}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.streamablehttp_client", _failing_mcp_client),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.Message") as msg_cls,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            msg_cls.return_value.send = AsyncMock()
+            await reload_chat.on_chat_start()
+
+        assert stored.get("doc") is None
+        assert len(created) == 0
+        sidebar.set_title.assert_not_called()
+        sidebar.set_elements.assert_not_called()
+
+    async def test_on_chat_start_welcome_message_has_no_reveal_action(self, reload_chat):
+        """AC4: the welcome message carries no persistent reveal/show action."""
+        stored: dict = {}
+        captured: dict = {}
+
+        def fake_message(*args, **kwargs):
+            captured.update(kwargs)
+            m = AsyncMock()
+            m.send = AsyncMock()
+            return m
+
+        with (
+            patch("app.chat.streamablehttp_client", _failing_mcp_client),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.Message", side_effect=fake_message),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.on_chat_start()
+
+        assert not captured.get("actions")
+
+    async def test_on_chat_resume_does_not_create_doc_or_open_sidebar(self, reload_chat):
+        """AC1 regression: resume re-seeds state only — no doc, no sidebar."""
+        stored: dict = {}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.streamablehttp_client", _failing_mcp_client),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.on_chat_resume({"steps": []})
+
+        assert stored.get("doc") is None
+        assert len(created) == 0
+        sidebar.set_title.assert_not_called()
+        sidebar.set_elements.assert_not_called()
+
+    async def test_apply_ops_succeeds_after_ensure_dossier_doc(self, reload_chat):
+        """AC5: once a doc exists, apply_ops operates on it (no 'canvas not open')."""
+        stored: dict = {"dossier": {"phase": "dossier", "content": "", "version": 0}}
+        factory, created = _make_fake_ce_factory()
+        sent_msg = AsyncMock()
+        sent_msg.send = AsyncMock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.Message", return_value=sent_msg),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            reload_chat.ensure_dossier_doc()
+            result = await reload_chat._handle_apply_ops(
+                {"ops": [{"type": "append", "content": "# Hello"}], "summary": "added heading"}
+            )
+
+        assert result == "ok"
+        assert stored["doc"].props["content"] == "# Hello"
+
+    async def test_handle_apply_ops_without_doc_still_reports_not_open(self, reload_chat):
+        """AC5 guard preserved: with no doc, apply_ops still returns the not-open error."""
+        stored: dict = {}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            result = await reload_chat._handle_apply_ops({"ops": [{"type": "append", "content": "x"}], "summary": "s"})
+
+        assert result == "Error: dossier canvas is not open"
+
+    async def test_update_dossier_content_refreshes_sidebar_when_revealed(self, reload_chat):
+        """AC6: after reveal, update_dossier_content re-renders the sidebar with a new key.
+
+        doc.update() alone does not refresh a sidebar-hosted element, and re-running
+        set_elements with the SAME key is a no-op — so the refresh must use a
+        version-stamped key.
+        """
+        doc = MagicMock()
+        doc.props = {"content": "", "version": 0, "phase": "dossier"}
+        doc.update = AsyncMock()
+        stored: dict = {"doc": doc, "dossier_revealed": True}
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.update_dossier_content("# New content")
+
+        assert doc.props["content"] == "# New content"
+        assert doc.props["version"] == 1
+        sidebar.set_elements.assert_awaited_once()
+        args, kwargs = sidebar.set_elements.call_args
+        assert args[0] == [doc]
+        assert kwargs.get("key") == "dossier-v1"  # version-stamped → not a no-op
+
+    async def test_update_dossier_content_no_sidebar_refresh_when_not_revealed(self, reload_chat):
+        """AC4: content updates before reveal must NOT force the panel open."""
+        doc = MagicMock()
+        doc.props = {"content": "", "version": 0, "phase": "dossier"}
+        doc.update = AsyncMock()
+        stored: dict = {"doc": doc}  # dossier_revealed not set
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.update_dossier_content("# Silent update")
+
+        # Doc props still updated (so content shows once revealed), but no sidebar open.
+        assert doc.props["content"] == "# Silent update"
+        sidebar.set_elements.assert_not_called()
+        sidebar.set_title.assert_not_called()
+
+    async def test_refresh_dossier_canvas_is_noop_when_not_revealed(self, reload_chat):
+        """_refresh_dossier_canvas does nothing until the canvas has been revealed."""
+        doc = MagicMock()
+        doc.props = {"content": "x", "version": 2, "phase": "dossier"}
+        stored: dict = {"doc": doc}
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat._refresh_dossier_canvas()
+
+        sidebar.set_elements.assert_not_called()
+
+    async def test_apply_ops_streams_into_sidebar_per_op_when_revealed(self, reload_chat):
+        """AC6: with the canvas revealed, each op refreshes the sidebar (streaming)."""
+        doc = MagicMock()
+        doc.props = {"content": "", "version": 0, "phase": "dossier"}
+        doc.update = AsyncMock()
+        stored: dict = {
+            "doc": doc,
+            "dossier_revealed": True,
+            "dossier": {"phase": "dossier", "content": "", "version": 0},
+        }
+        sent_msg = AsyncMock()
+        sent_msg.send = AsyncMock()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.ElementSidebar", sidebar),
+            patch("app.chat.cl.Message", return_value=sent_msg),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            result = await reload_chat._handle_apply_ops(
+                {
+                    "ops": [
+                        {"type": "append", "content": "## Part 1"},
+                        {"type": "append", "content": "Body text."},
+                    ],
+                    "summary": "two appends",
+                }
+            )
+
+        assert result == "ok"
+        # One sidebar refresh per op (2 ops → 2 refreshes), each with a fresh key.
+        assert sidebar.set_elements.await_count == 2
+        keys = [c.kwargs.get("key") for c in sidebar.set_elements.await_args_list]
+        assert keys == ["dossier-v1", "dossier-v2"]

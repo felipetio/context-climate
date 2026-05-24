@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-24
-last_updated: 2026-05-13  # 11-2 done
+last_updated: 2026-05-25  # story 10-6 review->done (code review passed; 1 patch applied: action.remove() assertion added to test). Prior: 10-6 in-progress->review; 11-1 review->done
 project: bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -127,20 +127,27 @@ development_status:
   epic-9-retrospective: optional
 
   # Epic 10: Journalist Dossier Shell (dossier pivot, see sprint-change-proposal-2026-05-07.md)
+  # Display replan 2026-05-23 (sprint-change-proposal-2026-05-23.md): the always-open
+  # ElementSidebar canvas was rejected and removed in PR #64. Display is now on-demand:
+  # 10-5 cancelled (reopen affordances removed), 10-6 added (lazy reveal). 10-2 stays done
+  # (auto-open AC superseded; update_dossier_content + session init survive).
   epic-10: in-progress
   10-1-document-jsx-custom-element: done
-  10-2-elementsidebar-canvas-integration: done
+  10-2-elementsidebar-canvas-integration: done  # auto-open AC superseded by 10-6
   10-3-apply-ops-patch-engine: done
   10-4-dossier-system-prompt: done
-  10-5-dossier-canvas-reopen-affordance: done
+  10-5-dossier-canvas-reopen-affordance: cancelled  # superseded by 10-6 (on-demand reveal); code reverted in PR #64
+  10-6-on-demand-dossier-canvas-reveal: done
   epic-10-retrospective: optional
 
   # Epic 11: Investigation State Machine
+  # 11-3/11-4 ACs rewritten 2026-05-23 to drive the on-demand reveal (depends on 10-6).
+  # 11-1/11-2 are display-agnostic and unchanged.
   epic-11: in-progress
-  11-1-investigation-session-state: review
+  11-1-investigation-session-state: done
   11-2-update-investigation-item-tool: done
-  11-3-phase-gate-logic: backlog
-  11-4-propose-structure-tool: backlog
+  11-3-phase-gate-logic: backlog  # ACs rewritten 2026-05-23 (posts 10-6 reveal affordance)
+  11-4-propose-structure-tool: backlog  # ACs rewritten 2026-05-23 (lazy doc creation via 10-6)
   epic-11-retrospective: optional
 
   # Epic 12: Data-Validated Investigation

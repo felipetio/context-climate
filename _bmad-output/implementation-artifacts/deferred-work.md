@@ -1,8 +1,12 @@
 # Deferred Work
 
+## Deferred from: code review of 11-1-investigation-session-state (2026-05-23)
+
+- **[11-1] `phase_gate_reached` hardcoded `False` in `update_investigation_item`** (`app/chat.py`) — by-design stub from Story 11.1; returns `False` even when all 10 items are done. Now user-reachable because the Story 11.2 tool wrapper is live in HEAD, so the model receives a misleading `phase_gate_reached: False` on every call. **Owned by Story 11.3** (rewritten 2026-05-23 to compute the real gate on items 1-5 and return `True`). No action needed in 11.1.
+
 ## Deferred from: code review of 11-2-update-investigation-item-tool (2026-05-13)
 
-- **[11-2] `update_investigation_item` helper mutates session dict in-place without `cl.user_session.set` on normal path** (`app/chat.py:137`) — pre-existing Story 11.1 design; if Chainlit ever returns a copy instead of a reference from `.get()`, the mutation is silently lost. Fix: add `cl.user_session.set("investigation", state)` after line 137 unconditionally.
+- **[11-2] `update_investigation_item` helper mutates session dict in-place without `cl.user_session.set` on normal path** (`app/chat.py:137`) — pre-existing Story 11.1 design; if Chainlit ever returns a copy instead of a reference from `.get()`, the mutation is silently lost. Fix: add `cl.user_session.set("investigation", state)` after line 137 unconditionally. — ✅ **RESOLVED 2026-05-23** via the Story 11.1 code review (P1): unconditional write-back added.
 
 - **[11-2] Pre-dispatch `json.dumps(tool_input, indent=2)` not in try/except** (`app/chat.py:805`) — pre-existing agentic loop vulnerability; if any MCP tool deserializes a non-serialisable Python object into `tool_input`, this raises before the per-tool dispatch block. Shared exposure with `apply_ops` and MCP path. Fix: wrap in try/except or validate tool_input before logging.
 

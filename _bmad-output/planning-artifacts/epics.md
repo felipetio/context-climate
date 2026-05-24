@@ -1288,12 +1288,14 @@ So that I can verify any data claim in one click.
 
 ## Epic 10: Journalist Dossier Shell
 
-The complete technical container for the dossier feature: Chainlit split-panel layout with a live markdown canvas on the right and chat on the left, powered by the `apply_ops` anchor-based patch protocol. No investigation intelligence yet. This epic delivers the infrastructure every subsequent epic builds on.
+The complete technical container for the dossier feature: an **on-demand** markdown canvas rendered in the right-side `cl.ElementSidebar`, revealed only when the session enters dossier phase (never auto-opened empty at chat start), powered by the `apply_ops` anchor-based patch protocol. No investigation intelligence yet. This epic delivers the infrastructure every subsequent epic builds on.
 
 **FRs covered:** FR60, FR67, FR68, FR69, FR74
 **NFRs addressed:** NFR1 (streaming ops updates), NFR2 (full response timing), NFR5 (API key via env var)
 **Implementation order:** After Epic 3 (citation pipeline in place); can run in parallel with Epics 4-9
 **Dependency:** `chainlit>=2.4.301` required for `cl.ElementSidebar`
+
+> **Replan note (2026-05-23, see `sprint-change-proposal-2026-05-23.md`):** The original always-open-at-start canvas (Story 10.2) and its reopen affordances (Story 10.5) were removed in PR #64 as poor UX. The display model is now lazy + on-demand — see **Story 10.6**. The `apply_ops`/`update_dossier_content` engine and `Document.jsx` are unchanged and reused.
 
 ### Story 10.1: Document.jsx Custom Element
 
@@ -1343,8 +1345,9 @@ So that the split-panel layout is wired up and ready for content.
 **Given** a new chat session starts
 **When** `@cl.on_chat_start` fires
 **Then** dossier session state is initialized in `cl.user_session`: `{"phase": "investigating", "content": "", "version": 0}`
-**And** the canvas opens immediately with `cl.ElementSidebar.set_title("Dossier")` and `cl.ElementSidebar.set_elements([doc], key="dossier-canvas")`
-**And** the Document.jsx element reference is stored in `cl.user_session["doc"]`
+**And** ~~the canvas opens immediately~~ — **SUPERSEDED by Story 10.6 (PR #64):** the canvas no longer opens at chat start. The `doc` element is created lazily via `ensure_dossier_doc()` at the phase gate, not in `@cl.on_chat_start`.
+
+> **Surviving deliverables from this story remain in force:** `update_dossier_content(content)` and the `dossier`/`investigation` session-state initialization. Only the auto-open AC is superseded.
 
 **Given** the dossier session state exists
 **When** Python calls `update_dossier_content(new_content)`
@@ -1463,6 +1466,8 @@ So that the LLM interviews during investigation and edits the document during do
 
 ### Story 10.5: Dossier Canvas Reopen Affordance
 
+**Status: Cancelled (2026-05-23)** — superseded by **Story 10.6 (On-Demand Dossier Canvas Reveal)**. The always-available reopen surface this story delivered (`reopen_dossier_canvas`, `/dossier` slash command, "Show dossier" welcome button) was rejected as UX and removed in PR #64. The on-demand reveal model replaces it. Code already reverted — nothing further to revert. See `sprint-change-proposal-2026-05-23.md`.
+
 As a journalist,
 I want a way to bring the dossier panel back after I close it,
 So that I can keep working without restarting the chat session when I dismissed the canvas by accident or on purpose.
@@ -1517,6 +1522,56 @@ So that I can keep working without restarting the chat session when I dismissed 
 - `_bmad-output/implementation-artifacts/10-2-elementsidebar-canvas-integration.md` — Review Findings → "`open_dossier_canvas()` is not idempotent" (deferred to this story).
 - **Schedule:** implement **after** Story 10.3 (`apply_ops`) lands — 10.3 will exercise `update_dossier_content()` heavily, and the reopen logic should be validated against the live apply_ops-driven update flow.
 - Chainlit docs: `cl.ElementSidebar`, `cl.set_commands`, `@cl.action_callback`.
+
+### Story 10.6: On-Demand Dossier Canvas Reveal
+
+As a journalist,
+I want the dossier panel to appear only once my investigation has enough context,
+So that I'm not faced with a blank panel at the start of every chat.
+
+**FRs covered:** FR60, FR67 (re-scoped from Stories 10.2 / 10.5)
+**Dependency:** Stories 10.1 (Document.jsx), 10.3 (apply_ops). Reuses the engine retained through PR #64.
+**Replaces:** Story 10.2 auto-open AC + Story 10.5 (cancelled).
+
+**Acceptance Criteria:**
+
+**AC1: No canvas at chat start or on resume.**
+**Given** a new or resumed chat session
+**When** `@cl.on_chat_start` / `@cl.on_chat_resume` fires
+**Then** dossier + investigation session state is initialized BUT no `cl.ElementSidebar` is opened and no `doc` element is created
+**And** the right panel is absent during `"investigating"` phase.
+
+**AC2: Lazy doc creation helper.**
+**Given** `app/chat.py`
+**When** `ensure_dossier_doc()` is called
+**Then** it creates `cl.user_session["doc"]` as a `Document` `CustomElement` (`{content, version, phase: "dossier"}`) if absent, and reuses the existing element if present (idempotent)
+**And** it does NOT open the sidebar.
+
+**AC3: On-demand reveal helper.**
+**Given** a `doc` exists
+**When** `reveal_dossier_canvas()` is called
+**Then** `cl.ElementSidebar` opens (title "Dossier") showing the current `doc`, preserving `content`/`version`/`phase`
+**And** repeated calls do not orphan elements (idempotent).
+
+**AC4: Reveal is triggered by an explicit affordance, post-gate only.**
+**Given** the session transitions to `"dossier"` phase (driven by Story 11.3)
+**When** the transition message is sent
+**Then** a single chat affordance (e.g. `cl.Action` labeled "📄 Open dossier") is shown, and clicking it calls `reveal_dossier_canvas()`
+**And** there is NO auto-open, NO `/dossier` command, and NO persistent "Show dossier" button during investigation.
+
+**AC5: Engine reuse.**
+**Given** the `doc` has been created
+**When** `_handle_apply_ops()` / `update_dossier_content()` run
+**Then** they operate on that `doc` and no longer return `"Error: dossier canvas is not open"`
+**And** `Document.jsx` is reused unchanged as the renderer (its `"investigating"` placeholder branch is unreachable since the panel isn't shown during investigation).
+
+**AC6: Manual verification (VPS).**
+Fresh chat → no panel. Complete investigation items 1-5 → "📄 Open dossier" affordance appears. Click → populated skeleton renders. Subsequent `apply_ops` edits stream into the panel.
+
+**Anti-patterns:**
+- **DON'T** open the canvas in `@cl.on_chat_start`.
+- **DON'T** re-introduce the `/dossier` command or a persistent "Show dossier" button.
+- **DON'T** create a new `CustomElement` on each reveal — reuse the `doc` reference.
 
 ---
 
@@ -1576,20 +1631,24 @@ So that state transitions are explicit and logged.
 ### Story 11.3: Phase Gate Logic
 
 As a developer,
-I want the app to automatically transition to dossier mode when the investigation prerequisites are met,
-So that the document appears at the right moment without explicit user action.
+I want the app to transition to dossier mode and offer to reveal the dossier when the investigation prerequisites are met,
+So that the dossier surfaces at the right moment via an explicit, non-intrusive affordance.
+
+> **Rewritten 2026-05-23 (display replan, see `sprint-change-proposal-2026-05-23.md`).** Depends on **Story 10.6** (reveal mechanism). The phase transition is automatic; the canvas reveal is an explicit one-click affordance, not an auto-open.
 
 **Acceptance Criteria:**
 
 **Given** items 1-5 (topic_definition, geography_scope, time_range, target_audience, data_sources_validation) are all done
 **When** `update_investigation_item` is called and completes item 5
 **Then** `cl.user_session["dossier"]["phase"]` transitions to `"dossier"`
+**And** `update_investigation_item` returns `phase_gate_reached: True` (replacing the hardcoded `False` from Story 11.2)
 **And** `logger.debug("[INVESTIGATION] phase_gate=reached, transitioning to dossier mode")` is emitted
 **And** `propose_structure` tool is automatically made available to the LLM on the next turn
+**And** the Story 10.6 reveal affordance ("📄 Open dossier") is posted to chat — the canvas is NOT auto-opened.
 
 **Given** fewer than 5 prerequisite items are done
 **When** any item is updated
-**Then** the phase remains `"investigating"` and no transition occurs
+**Then** the phase remains `"investigating"`, no affordance is posted, and no transition occurs
 
 ### Story 11.4: propose_structure Tool
 
@@ -1597,14 +1656,18 @@ As a journalist,
 I want the app to propose a dossier structure when I've answered the key questions,
 So that I can start from a clear skeleton and not a blank page.
 
+> **Rewritten 2026-05-23 (display replan, see `sprint-change-proposal-2026-05-23.md`).** Depends on **Story 10.6** (lazy doc creation). `propose_structure` populates a lazily-created doc; it does NOT force the sidebar open.
+
 **Acceptance Criteria:**
 
 **Given** the phase gate has been reached
 **When** the LLM calls `propose_structure()`
-**Then** Python generates a markdown skeleton based on the investigation state (topic, geography, angle)
-**And** the skeleton is set as `doc.props["content"]` via `update_dossier_content()`
+**Then** Python calls `ensure_dossier_doc()` (Story 10.6) to create the `doc` if absent
+**And** generates a markdown skeleton based on the investigation state (topic, geography, angle)
+**And** sets the skeleton as `doc.props["content"]` via `update_dossier_content()`
 **And** `doc.props["phase"]` is set to `"dossier"` and `await doc.update()` is called
 **And** the tool returns `{"status": "ok", "sections": [list of section headings]}`
+**And** the skeleton becomes visible when the journalist opens the canvas via the Story 10.6 reveal affordance — `propose_structure` does NOT itself force the sidebar open.
 
 **Given** the proposed skeleton
 **When** rendered in the canvas
