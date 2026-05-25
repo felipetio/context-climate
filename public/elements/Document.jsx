@@ -20,6 +20,13 @@ export default function Document() {
     };
   }, []);
 
+  // Expose a header toggle bridge so login-customize.js can call back into Python.
+  // Runs on every mount so the callAction closure is always fresh.
+  useEffect(() => {
+    window.__cc_toggle_dossier = () => callAction({ name: "toggle_dossier", payload: {} });
+    document.dispatchEvent(new CustomEvent("cc:dossier-active"));
+  }, []);
+
   const handleChange = (e) => {
     const val = e.target.value;
     setEditContent(val);
