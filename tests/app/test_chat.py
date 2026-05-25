@@ -2,6 +2,7 @@
 
 import contextlib
 import importlib
+import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -2255,6 +2256,193 @@ class TestUpdateInvestigationItemTool:
         assert "[ ] topic_definition" in captured_systems[0]
         # Round 2: recorded with the supplied value
         assert "[x] topic_definition: Climate" in captured_systems[1]
+
+
+class TestPhaseGateLogic:
+    """Story 11.3: phase-gate computation, phase flip, and reveal affordance."""
+
+    def _all_gate_items_done(self, reload_chat) -> dict:
+        state = reload_chat._empty_investigation_state()
+        for k in reload_chat._PHASE_GATE_ITEMS:
+            state[k] = {"done": True, "value": "set"}
+        return state
+
+    def test_gate_not_reached_with_partial_items(self, reload_chat):
+        """AC1a: 4 of 5 gate items done → phase_gate_reached is False."""
+        state = reload_chat._empty_investigation_state()
+        for k in ("topic_definition", "geography_scope", "time_range", "target_audience"):
+            state[k] = {"done": True, "value": "set"}
+        store = {"investigation": state, "dossier": {"phase": "investigating"}}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            # Mark a non-gate item; data_sources_validation still missing
+            result = reload_chat.update_investigation_item("key_stats_capture", "some stats")
+        assert result["phase_gate_reached"] is False
+        assert store["dossier"]["phase"] == "investigating"
+
+    def test_gate_reached_when_all_five_items_done(self, reload_chat, caplog):
+        """AC2: completing the 5th gate item flips phase_gate_reached True, phase to dossier, emits debug log."""
+        state = reload_chat._empty_investigation_state()
+        for k in ("topic_definition", "geography_scope", "time_range", "target_audience"):
+            state[k] = {"done": True, "value": "set"}
+        store = {"investigation": state, "dossier": {"phase": "investigating"}}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            with caplog.at_level("DEBUG", logger="app.chat"):
+                result = reload_chat.update_investigation_item("data_sources_validation", "confirmed")
+        assert result["phase_gate_reached"] is True
+        assert store["dossier"]["phase"] == "dossier"
+        assert any("phase_gate=reached, transitioning to dossier mode" in rec.message for rec in caplog.records)
+
+    def test_gate_idempotent_when_already_dossier(self, reload_chat, caplog):
+        """AC2 idempotent: re-calling a gate item already done keeps gate True, phase unchanged, log not re-emitted."""
+        store = {"investigation": self._all_gate_items_done(reload_chat), "dossier": {"phase": "dossier"}}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            with caplog.at_level("DEBUG", logger="app.chat"):
+                result = reload_chat.update_investigation_item("topic_definition", "re-confirmed")
+        assert result["phase_gate_reached"] is True
+        assert store["dossier"]["phase"] == "dossier"
+        assert not any("phase_gate=reached, transitioning to dossier mode" in rec.message for rec in caplog.records)
+
+    def test_gate_not_reached_with_non_gate_items_only(self, reload_chat):
+        """AC1a: non-gate items never trigger the gate."""
+        store = {"investigation": reload_chat._empty_investigation_state(), "dossier": {"phase": "investigating"}}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            result = reload_chat.update_investigation_item("methodology", "source analysis")
+        assert result["phase_gate_reached"] is False
+
+    def test_update_investigation_item_is_synchronous(self, reload_chat):
+        """AC5: update_investigation_item must remain a synchronous (non-coroutine) function."""
+        assert not inspect.iscoroutinefunction(reload_chat.update_investigation_item)
+
+    async def test_dispatch_posts_affordance_on_gate_transition(self, reload_chat):
+        """AC3: dispatch awaits post_dossier_reveal_affordance exactly once on investigating→dossier transition."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="update_investigation_item",
+            input={"item_id": "data_sources_validation", "value": "confirmed"},
+            id="toolu_gate_01",
+        )
+        text_block = _make_fake_content_block("text", "Dossier ready.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Dossier ready."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        gate_result = {"status": "ok", "item": "data_sources_validation", "items_done": 5, "phase_gate_reached": True}
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history()),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch("app.chat.update_investigation_item", return_value=gate_result),
+            patch("app.chat.post_dossier_reveal_affordance", new_callable=AsyncMock) as mock_reveal,
+        ):
+            incoming = MagicMock()
+            incoming.content = "all sources validated"
+            await reload_chat.on_message(incoming)
+
+        mock_reveal.assert_awaited_once()
+
+    async def test_dispatch_no_affordance_when_already_dossier(self, reload_chat):
+        """AC4: affordance not re-posted when phase was already dossier before the call."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="update_investigation_item",
+            input={"item_id": "key_stats_capture", "value": "stats"},
+            id="toolu_gate_02",
+        )
+        text_block = _make_fake_content_block("text", "OK.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["OK."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        gate_result = {"status": "ok", "item": "key_stats_capture", "items_done": 6, "phase_gate_reached": True}
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history(dossier={"phase": "dossier"})),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch("app.chat.update_investigation_item", return_value=gate_result),
+            patch("app.chat.post_dossier_reveal_affordance", new_callable=AsyncMock) as mock_reveal,
+        ):
+            incoming = MagicMock()
+            incoming.content = "more items"
+            await reload_chat.on_message(incoming)
+
+        mock_reveal.assert_not_awaited()
+
+    async def test_dispatch_no_affordance_when_gate_not_reached(self, reload_chat):
+        """AC1/AC3: no affordance posted when phase_gate_reached is False (gate not reached)."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="update_investigation_item",
+            input={"item_id": "topic_definition", "value": "Climate"},
+            id="toolu_gate_03",
+        )
+        text_block = _make_fake_content_block("text", "Noted.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Noted."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        no_gate_result = {"status": "ok", "item": "topic_definition", "items_done": 1, "phase_gate_reached": False}
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history()),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch("app.chat.update_investigation_item", return_value=no_gate_result),
+            patch("app.chat.post_dossier_reveal_affordance", new_callable=AsyncMock) as mock_reveal,
+        ):
+            incoming = MagicMock()
+            incoming.content = "set topic"
+            await reload_chat.on_message(incoming)
+
+        mock_reveal.assert_not_awaited()
 
 
 def _make_fake_ce_factory():
