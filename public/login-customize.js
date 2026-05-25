@@ -248,5 +248,21 @@
     }
   }
 
-  document.addEventListener("cc:dossier-active", injectDossierToggle);
+  // React can re-render the header subtree and drop our injected button. Watch
+  // for that and re-inject (injectDossierToggle is idempotent). The observer is
+  // armed only after the first dossier-active signal so it never runs on the
+  // login screen or before dossier mode.
+  var dossierObserver = null;
+  function armDossierObserver() {
+    if (dossierObserver) return;
+    dossierObserver = new MutationObserver(function () {
+      if (!document.getElementById(DOSSIER_BTN_ID)) injectDossierToggle();
+    });
+    dossierObserver.observe(document.body, { subtree: true, childList: true });
+  }
+
+  document.addEventListener("cc:dossier-active", function () {
+    injectDossierToggle();
+    armDossierObserver();
+  });
 })();

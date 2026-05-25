@@ -1,6 +1,6 @@
 # Story 11.4: propose_structure Tool
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -77,7 +77,7 @@ So that I can start from a clear skeleton and not a blank page.
 **AC9: Lint, format, full suite pass.**
 - [x] `uv run ruff check .` clean
 - [x] `uv run ruff format --check .` clean
-- [x] `uv run pytest -q` — all tests pass (existing 382 + 11 new = 393 total)
+- [x] `uv run pytest -q` — all tests pass (existing 382 + 16 new = 398 total; corrected 2026-05-25 — extra tests cover the bundled toggle/resume feature)
 
 ---
 
@@ -250,6 +250,30 @@ So that I can start from a clear skeleton and not a blank page.
 
 ---
 
+### Review Findings
+
+_Code review 2026-05-25 (`/bmad-code-review` — 3 layers: Blind Hunter + Edge Case Hunter + Acceptance Auditor). All nine ACs (AC1–AC9) were verified **satisfied**; the findings below are scope + robustness items, not AC failures._
+
+**Decision-needed:**
+
+- [x] [Review][Decision][Resolved 2026-05-25: accept expanded scope] Out-of-scope feature bundled into the 11.4 diff — The story's "Is not" list (lines 268–270, 329) forbids `Document.jsx` / `public/` changes, reveal-affordance/resume changes, and resume persistence. Yet the diff adds a full "dossier panel toggle" feature (`public/elements/Document.jsx`, `public/login-customize.js`, `public/custom.css`, `.chainlit/config.toml` cache-bust, `on_toggle_dossier` in `app/chat.py`) plus `on_chat_resume` auto-reveal and the sidebar open-counter key change. ~Half the diff (commit `d27316e`) is a separate feature. Decide: (a) accept the expanded scope and update this story's scope section + AC9 test count, or (b) split the toggle/resume feature into its own story/PR. Sub-question: on resume the panel auto-opens an **empty** dossier (content not persisted — out of scope) and forces it open regardless of intent — is that desired UX?
+
+**Patches:**
+
+- [x] [Review][Patch] Substring-based resume phase detection over-matches — fixed: match `type == "tool"` AND exact name `"🔧 propose_structure"`; regression test added [app/chat.py:696]
+- [x] [Review][Patch] Close path uses a constant sidebar key while open keys are monotonic — fixed: close key now `f"closed-o{open_count}"`; distinct-key regression test added [app/chat.py:243]
+- [x] [Review][Patch] Document.jsx toggle bridge has no effect cleanup / stale-closure risk — fixed: `useEffect` now returns a cleanup that `delete`s `window.__cc_toggle_dossier` on unmount (JS, manual-verify) [public/elements/Document.jsx]
+- [x] [Review][Patch] `topic_area` not sanitized against Markdown/heading injection — fixed: strip `` ` * _ [ ] # `` via `str.translate` + collapse whitespace; test added [app/chat.py:_derive_topic_label]
+- [x] [Review][Patch] Header-button injection brittle selectors with no re-injection guard — fixed: armed a `MutationObserver` to re-inject (idempotent) on header re-render (JS, manual-verify) [public/login-customize.js]
+- [x] [Review][Patch] Test gaps — fixed: dispatch test now asserts handler output is wired into the `tool_result`; added error-path, whitespace-`topic_area`, and 60/61 truncation-boundary tests [tests/app/test_chat.py]
+- [x] [Review][Patch] Doc/count drift — resolved 2026-05-25: counts corrected to 398 (382 + 16 new) in AC9, Completion Notes, and Change Log; `Status` header reconciled below. [11-4-propose-structure-tool.md]
+
+**Deferred:**
+
+- [x] [Review][Defer] Resume iterates `thread.get("steps", [])` unguarded [app/chat.py:674,696] — deferred, pre-existing — returns `None` if the `steps` key is present-but-null, and a non-dict step element would crash `.get`; the pre-existing loop at line 675 already shares this risk, so it is not introduced by this change.
+
+---
+
 ## Dev Notes
 
 ### What this story is (and is not)
@@ -265,9 +289,9 @@ So that I can start from a clear skeleton and not a blank page.
 **Is not:**
 - Executive Summary stat pre-population (Story 13.3 owns that — `epics.md:1814-1842`).
 - Section add/remove via chat (Story 13.2 — done through `apply_ops`, no new tool).
-- Any `Document.jsx` / `public/` changes (the skeleton is plain markdown the existing element renders).
-- Any phase-gate or reveal-affordance changes (Story 11.3 owns those; this story does NOT touch `update_investigation_item` or `post_dossier_reveal_affordance`).
-- Persistence of dossier content across chat resume (still out of scope — `deferred-work.md`).
+- ~~Any `Document.jsx` / `public/` changes~~ — **scope expanded 2026-05-25 (code-review decision):** a dossier-panel header toggle was folded in (`Document.jsx` bridge, `login-customize.js` button, `custom.css`, `.chainlit/config.toml` cache-bust, `on_toggle_dossier`).
+- ~~Any phase-gate or reveal-affordance changes~~ — **scope expanded 2026-05-25:** `on_chat_resume` now auto-reveals the dossier canvas when a prior `propose_structure` step is detected, and the sidebar key gained an open-counter suffix. (`update_investigation_item` / `post_dossier_reveal_affordance` remain untouched — still 11.3's.)
+- Persistence of dossier content across chat resume — still out of scope (`deferred-work.md`); resume therefore reveals an **empty** dossier, accepted as a known limitation in the 2026-05-25 review.
 
 ### Why Python generates the skeleton (not the LLM)
 
@@ -451,7 +475,7 @@ No issues encountered during implementation.
 - Added dispatch `elif` branch between `update_investigation_item` and `mcp_session` fallback
 - Extended `DOSSIER_SYSTEM_PROMPT` with "STARTING THE DOSSIER" one-shot instruction in `app/prompts.py`
 - Added `TestProposeStructureTool` class with 11 tests (5 pure-helper, 3 handler, 1 dispatch, 2 registration)
-- All 393 tests pass (382 existing + 11 new)
+- All 398 tests pass (382 existing + 16 new — count corrected in 2026-05-25 code review)
 
 ### File List
 
@@ -467,3 +491,4 @@ No issues encountered during implementation.
 |------------|-----------------------------------------------------------------|
 | 2026-05-25 | Story created via `bmad-create-story`. Status: ready-for-dev.   |
 | 2026-05-25 | Implemented by claude-sonnet-4-6. Status: review. 393 tests pass. |
+| 2026-05-25 | Code review (`/bmad-code-review`): accepted expanded scope (toggle/resume feature). Count corrected to 398 (16 new). |

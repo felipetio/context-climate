@@ -1776,6 +1776,32 @@ class TestConversationResume:
         assert stored["dossier"]["phase"] == "investigating"
         reveal_mock.assert_not_called()
 
+    async def test_on_chat_resume_ignores_loose_propose_structure_mentions(self, reload_chat):
+        """P1 regression: a non-tool step or differently-named tool that merely
+        contains 'propose_structure' must NOT flip resume into dossier phase."""
+        thread = {
+            "steps": [
+                # Assistant prose mentioning the tool — not a tool step.
+                {"type": "assistant_message", "output": "I'll call propose_structure next."},
+                # A different (future) tool whose name only contains the substring.
+                {"name": "🔧 propose_structure_v2", "type": "tool", "output": "{}"},
+            ]
+        }
+        stored: dict = {}
+
+        with (
+            patch("app.chat.streamablehttp_client", _fake_streamablehttp_client),
+            patch("app.chat.ClientSession", return_value=AsyncMock()),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.reveal_dossier_canvas", new=AsyncMock()) as reveal_mock,
+        ):
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            await reload_chat.on_chat_resume(thread)
+
+        assert stored["dossier"]["phase"] == "investigating"
+        reveal_mock.assert_not_called()
+
 
 _INVESTIGATION_KEYS = (
     "topic_definition",
@@ -2889,6 +2915,28 @@ class TestProposeStructureTool:
         assert "## Part 1: Investigation Overview" in skeleton
         assert "Part 1: Investigation Overview" in sections
 
+    def test_derive_topic_label_strips_markdown_control_chars(self, reload_chat):
+        """P4: Markdown control chars are stripped so the topic can't distort/escape
+        the heading it's injected into; whitespace runs collapse."""
+        label = reload_chat._derive_topic_label(None, topic_area="Foo `bar`  ## *baz* [x]\n# hack")
+        assert "#" not in label
+        assert "`" not in label
+        assert "*" not in label
+        assert "[" not in label and "]" not in label
+        assert "\n" not in label
+        # Whitespace collapsed to single spaces.
+        assert "  " not in label
+        assert label == "Foo bar baz x hack"
+
+    def test_derive_topic_label_truncation_boundary(self, reload_chat):
+        """P6: 60-char topic is kept verbatim; 61-char topic is truncated to <=60 with '...'."""
+        exactly_60 = "A" * 60
+        assert reload_chat._derive_topic_label(None, topic_area=exactly_60) == exactly_60
+        over_60 = "B" * 61
+        truncated = reload_chat._derive_topic_label(None, topic_area=over_60)
+        assert len(truncated) <= 60
+        assert truncated.endswith("...")
+
     # ------------------------------------------------------------------
     # Handler tests
     # ------------------------------------------------------------------
@@ -2962,6 +3010,24 @@ class TestProposeStructureTool:
         existing.update.assert_not_awaited()
         assert len(created) == 0
 
+    async def test_handle_propose_structure_whitespace_topic_area_falls_back_to_state(self, reload_chat):
+        """P6: a whitespace-only topic_area collapses to None, so the skeleton falls
+        back to the investigation topic_definition value."""
+        stored: dict = {"investigation": {"topic_definition": {"done": True, "value": "Floods in Bangladesh"}}}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat._handle_propose_structure({"topic_area": "   "})
+
+        doc = stored["doc"]
+        assert "## Part 1: Floods in Bangladesh" in doc.props["content"]
+
     # ------------------------------------------------------------------
     # Dispatch test
     # ------------------------------------------------------------------
@@ -2980,10 +3046,12 @@ class TestProposeStructureTool:
         stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
         stream_final = FakeStream(tokens=["Skeleton created."], stop_reason="end_turn", content_blocks=[text_block])
         call_count = 0
+        captured_calls = []
 
         def fake_stream(**kwargs):
             nonlocal call_count
             call_count += 1
+            captured_calls.append(kwargs)
             return stream_with_tool if call_count == 1 else stream_final
 
         msg_mock = _make_fake_cl_message()
@@ -3015,6 +3083,75 @@ class TestProposeStructureTool:
             await reload_chat.on_message(incoming)
 
         mock_handler.assert_awaited_once()
+        # AC6: the handler's return value is wired back to the model as a tool_result
+        # on the follow-up stream call (not just awaited and discarded).
+        assert len(captured_calls) == 2
+        tool_results = [
+            block
+            for message in captured_calls[1]["messages"]
+            if isinstance(message.get("content"), list)
+            for block in message["content"]
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        ]
+        assert any(tr.get("content") == handler_return for tr in tool_results)
+
+    async def test_dispatch_propose_structure_handler_error_is_caught(self, reload_chat):
+        """P6: when _handle_propose_structure raises, the dispatch except branch
+        feeds an 'Error calling propose_structure' tool_result back to the model."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="propose_structure",
+            input={},
+            id="toolu_ps_err",
+        )
+        text_block = _make_fake_content_block("text", "Recovered.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Recovered."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+        captured_calls = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_calls.append(kwargs)
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "", "version": 0, "phase": "dossier"}
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(dossier={"phase": "dossier"}, doc=doc_mock),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch(
+                "app.chat._handle_propose_structure",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            incoming = MagicMock()
+            incoming.content = "create dossier"
+            await reload_chat.on_message(incoming)
+
+        tool_results = [
+            block
+            for message in captured_calls[1]["messages"]
+            if isinstance(message.get("content"), list)
+            for block in message["content"]
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        ]
+        assert any("Error calling propose_structure" in (tr.get("content") or "") for tr in tool_results)
 
     # ------------------------------------------------------------------
     # Registration tests
@@ -3100,8 +3237,33 @@ class TestToggleDossier:
             session_mock.set.side_effect = lambda k, v: stored.update({k: v})
             await reload_chat.on_toggle_dossier(action)
 
-        sidebar.set_elements.assert_awaited_once_with([], key="closed")
+        # Close key carries the open-counter (0 when never opened in this session).
+        sidebar.set_elements.assert_awaited_once_with([], key="closed-o0")
         assert stored.get("dossier_revealed") is False
+
+    async def test_toggle_close_keys_distinct_across_open_close_cycles(self, reload_chat):
+        """P2 regression: consecutive closes must use distinct keys so ElementSidebar
+        (which ignores an unchanged key) does not no-op the second close."""
+        stored: dict = {"dossier_revealed": True, "_sidebar_open_count": 1}
+        sidebar = _make_sidebar_mock()
+        action = MagicMock()
+
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            # First close at open_count=1, then simulate a reopen bumping the counter,
+            # then a second close — the two close keys must differ.
+            await reload_chat.on_toggle_dossier(action)
+            stored["dossier_revealed"] = True
+            stored["_sidebar_open_count"] = 2
+            await reload_chat.on_toggle_dossier(action)
+
+        close_keys = [c.kwargs["key"] for c in sidebar.set_elements.await_args_list]
+        assert close_keys == ["closed-o1", "closed-o2"]
+        assert len(set(close_keys)) == 2
 
     async def test_toggle_opens_panel_when_not_revealed(self, reload_chat):
         """When dossier_revealed=False, toggle calls reveal_dossier_canvas()."""

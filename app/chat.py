@@ -240,7 +240,12 @@ async def on_reveal_dossier(action: cl.Action) -> None:
 async def on_toggle_dossier(action: cl.Action) -> None:
     """Toggle the dossier panel open/closed via the header button."""
     if cl.user_session.get("dossier_revealed"):
-        await cl.ElementSidebar.set_elements([], key="closed")
+        # Stamp the close key with the open-counter too. ElementSidebar ignores
+        # set_elements when the key is unchanged, so a fixed "closed" key would be
+        # a no-op on the second close of an open → close → open → close cycle,
+        # leaving the panel stuck open.
+        open_count = cl.user_session.get("_sidebar_open_count") or 0
+        await cl.ElementSidebar.set_elements([], key=f"closed-o{open_count}")
         cl.user_session.set("dossier_revealed", False)
     else:
         await reveal_dossier_canvas()
@@ -363,6 +368,12 @@ PROPOSE_STRUCTURE_TOOL: dict[str, Any] = {
 }
 
 
+# Markdown control characters stripped from topic labels so a topic can't distort
+# or escape the heading it is injected into (nested "#" heading, "`" code span,
+# "*"/"_" emphasis, "[" / "]" link/anchor brackets).
+_MARKDOWN_CTRL = str.maketrans("", "", "`*_[]#")
+
+
 def _derive_topic_label(state: dict[str, dict[str, Any]] | None, topic_area: str | None) -> str:
     """Pick a concise heading label: explicit topic_area, else topic_definition value, else fallback."""
     if topic_area:
@@ -371,7 +382,10 @@ def _derive_topic_label(state: dict[str, dict[str, Any]] | None, topic_area: str
         entry = state.get("topic_definition") if isinstance(state, dict) else None
         raw = entry.get("value") if isinstance(entry, dict) else None
         label = str(raw) if raw else ""
-    label = label.replace("\r", " ").replace("\n", " ").strip()
+    # Strip newlines + Markdown control chars, then collapse whitespace runs so the
+    # label renders cleanly inside the "## Part 1: <label>" heading.
+    label = label.replace("\r", " ").replace("\n", " ").translate(_MARKDOWN_CTRL)
+    label = " ".join(label.split())
     if len(label) > 60:
         label = label[:57].rstrip() + "..."
     return label or "Investigation Overview"
@@ -691,9 +705,13 @@ async def on_chat_resume(thread: dict) -> None:
     # dossier phase — restore the phase flag and auto-reveal the canvas so the
     # user immediately sees their dossier (the one-shot "Open dossier" action is
     # gone after first use; auto-reveal avoids a dead end on resume).
-    # Step names are stored as "🔧 {tool_name}" (see the cl.Step context manager
-    # in the agentic loop), so we match on containment rather than equality.
-    is_dossier = any("propose_structure" in (step.get("name") or "") for step in steps)
+    # Tool steps are persisted as cl.Step(name="🔧 {tool_name}", type="tool") by
+    # the agentic loop. Match the exact tool step — type AND full name — so resume
+    # is not tripped by an error message, assistant prose mentioning the tool, or a
+    # future tool whose name merely contains "propose_structure".
+    is_dossier = any(
+        step.get("type") == "tool" and (step.get("name") or "") == "🔧 propose_structure" for step in steps
+    )
     dossier_phase = "dossier" if is_dossier else "investigating"
     cl.user_session.set("dossier", {"phase": dossier_phase, "content": "", "version": 0})
     cl.user_session.set("investigation", _empty_investigation_state())
