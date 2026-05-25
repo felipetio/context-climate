@@ -69,6 +69,10 @@ _INVESTIGATION_ITEMS: tuple[str, ...] = (
     "methodology",
 )
 
+_PHASE_GATE_ITEMS: frozenset[str] = frozenset(
+    ["topic_definition", "geography_scope", "time_range", "target_audience", "data_sources_validation"]
+)
+
 
 def _empty_investigation_state() -> dict[str, dict[str, Any]]:
     return {item: {"done": False, "value": None} for item in _INVESTIGATION_ITEMS}
@@ -99,12 +103,7 @@ def _format_investigation_snapshot(state: dict[str, dict[str, Any]]) -> str:
 
 
 def update_investigation_item(item_id: str, value: Any) -> dict[str, Any]:
-    """Mark an investigation checklist item as complete and return status.
-
-    Story 11.1: state-foundation helper. Story 11.2 will wrap this as an
-    Anthropic tool; Story 11.3 will replace `phase_gate_reached: False` with
-    the real gate computation.
-    """
+    """Mark an investigation checklist item as complete and return status."""
     if item_id not in _INVESTIGATION_ITEMS:
         return {"error": f"Unknown item_id: '{item_id}'"}
 
@@ -120,11 +119,20 @@ def update_investigation_item(item_id: str, value: Any) -> dict[str, Any]:
     logger.debug("[INVESTIGATION] item=%s status=complete value=%s", item_id, value)
 
     items_done = sum(1 for v in state.values() if isinstance(v, dict) and v.get("done"))
+    gate_reached = all(isinstance(state.get(k), dict) and bool(state[k].get("done")) for k in _PHASE_GATE_ITEMS)
+    if gate_reached:
+        dossier = cl.user_session.get("dossier")
+        if not isinstance(dossier, dict):
+            logger.warning("[INVESTIGATION] phase_gate=reached but dossier key is not a dict — phase not flipped")
+        elif dossier.get("phase") != "dossier":
+            dossier["phase"] = "dossier"
+            cl.user_session.set("dossier", dossier)
+            logger.debug("[INVESTIGATION] phase_gate=reached, transitioning to dossier mode")
     return {
         "status": "ok",
         "item": item_id,
         "items_done": items_done,
-        "phase_gate_reached": False,
+        "phase_gate_reached": gate_reached,
     }
 
 
@@ -838,11 +846,15 @@ async def _agentic_loop(
                         tool_output = f"Error applying ops: {exc}"
                 elif tool_name == "update_investigation_item":
                     try:
+                        _dossier_pre = cl.user_session.get("dossier") or {}
+                        _phase_before = _dossier_pre.get("phase", "investigating")
                         result = update_investigation_item(
                             tool_input.get("item_id", ""),
                             tool_input.get("value"),
                         )
                         tool_output = json.dumps(result)
+                        if result.get("phase_gate_reached") and _phase_before == "investigating":
+                            await post_dossier_reveal_affordance()
                     except Exception as exc:
                         logger.error("update_investigation_item failed: %s", exc)
                         tool_output = f"Error calling update_investigation_item: {exc}"

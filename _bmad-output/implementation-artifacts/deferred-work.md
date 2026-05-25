@@ -1,5 +1,11 @@
 # Deferred Work
 
+## Deferred from: code review of 11-3-phase-gate-logic (2026-05-25)
+
+- **[11-3] `on_chat_resume` resets `dossier["phase"]` to `"investigating"` unconditionally** (`app/chat.py:583`) — gate can never re-trigger after browser reload; user who reached phase gate before closing tab resumes as if in investigation phase with empty checklist. Pre-existing from Stories 11.1/11.2.
+- **[11-3] `update_investigation_item` error dict omits `phase_gate_reached` key** (`app/chat.py:108`) — when LLM sends unknown `item_id`, returned `{"error": "..."}` has no `phase_gate_reached`; dispatch reads `None` (falsy) which is safe but LLM receives ambiguous feedback. Pre-existing from Story 11.2.
+- **[11-3] `test_dispatch_no_affordance_when_already_dossier` does not assert serialized `tool_output` contains `"phase_gate_reached": true`** (`tests/app/test_chat.py`) — AC4 specifies this return value; implicitly verified through mock setup but not explicitly asserted. Low value given the clear code path.
+
 ## Deferred from: code review of 11-1-investigation-session-state (2026-05-23)
 
 - **[11-1] `phase_gate_reached` hardcoded `False` in `update_investigation_item`** (`app/chat.py`) — by-design stub from Story 11.1; returns `False` even when all 10 items are done. Now user-reachable because the Story 11.2 tool wrapper is live in HEAD, so the model receives a misleading `phase_gate_reached: False` on every call. **Owned by Story 11.3** (rewritten 2026-05-23 to compute the real gate on items 1-5 and return `True`). No action needed in 11.1.
