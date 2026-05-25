@@ -1,5 +1,9 @@
 # Deferred Work
 
+## Deferred from: code review of 11-4-propose-structure-tool (2026-05-25)
+
+- **[11-4] `on_chat_resume` iterates `thread.get("steps", [])` unguarded** (`app/chat.py:674,696`) — returns `None` if the `steps` key is present-but-null, and a non-dict step element would crash `step.get(...)`. Pre-existing: the loop at line 675 already iterates the same `steps`, so this is not introduced by Story 11.4. Fix when touched: `steps = thread.get("steps") or []` and filter `isinstance(step, dict)`.
+
 ## Deferred from: code review of 11-3-phase-gate-logic (2026-05-25)
 
 - **[11-3] `on_chat_resume` resets `dossier["phase"]` to `"investigating"` unconditionally** (`app/chat.py:583`) — gate can never re-trigger after browser reload; user who reached phase gate before closing tab resumes as if in investigation phase with empty checklist. Pre-existing from Stories 11.1/11.2.

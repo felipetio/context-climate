@@ -20,6 +20,18 @@ export default function Document() {
     };
   }, []);
 
+  // Expose a header toggle bridge so login-customize.js can call back into Python.
+  // callAction is a stable Chainlit-injected global, so binding it once per mount
+  // is fine; the cleanup clears the global on unmount so the persisted header
+  // button can never call into an unmounted element (a stale closure).
+  useEffect(() => {
+    window.__cc_toggle_dossier = () => callAction({ name: "toggle_dossier", payload: {} });
+    document.dispatchEvent(new CustomEvent("cc:dossier-active"));
+    return () => {
+      delete window.__cc_toggle_dossier;
+    };
+  }, []);
+
   const handleChange = (e) => {
     const val = e.target.value;
     setEditContent(val);

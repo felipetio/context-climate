@@ -186,10 +186,13 @@ async def reveal_dossier_canvas() -> None:
     """
     doc = ensure_dossier_doc()
     cl.user_session.set("dossier_revealed", True)
+    # Monotonic open-counter ensures the key is unique across close → reopen
+    # cycles.  ElementSidebar silently ignores set_elements when the key hasn't
+    # changed, so re-using "dossier-v0" after a close would leave the panel shut.
+    open_count = (cl.user_session.get("_sidebar_open_count") or 0) + 1
+    cl.user_session.set("_sidebar_open_count", open_count)
     await cl.ElementSidebar.set_title("Dossier")
-    # Version-stamped key: ElementSidebar ignores set_elements when the key is
-    # unchanged, so a fixed key would freeze the panel after the first render.
-    await cl.ElementSidebar.set_elements([doc], key=f"dossier-v{doc.props.get('version', 0)}")
+    await cl.ElementSidebar.set_elements([doc], key=f"dossier-v{doc.props.get('version', 0)}-o{open_count}")
 
 
 async def _refresh_dossier_canvas() -> None:
@@ -208,7 +211,8 @@ async def _refresh_dossier_canvas() -> None:
     doc = cl.user_session.get("doc")
     if doc is None:
         return
-    await cl.ElementSidebar.set_elements([doc], key=f"dossier-v{doc.props.get('version', 0)}")
+    open_count = cl.user_session.get("_sidebar_open_count") or 0
+    await cl.ElementSidebar.set_elements([doc], key=f"dossier-v{doc.props.get('version', 0)}-o{open_count}")
 
 
 async def post_dossier_reveal_affordance() -> None:
@@ -230,6 +234,21 @@ async def on_reveal_dossier(action: cl.Action) -> None:
     await reveal_dossier_canvas()
     # One-shot affordance: remove it after use so it doesn't linger in chat.
     await action.remove()
+
+
+@cl.action_callback("toggle_dossier")
+async def on_toggle_dossier(action: cl.Action) -> None:
+    """Toggle the dossier panel open/closed via the header button."""
+    if cl.user_session.get("dossier_revealed"):
+        # Stamp the close key with the open-counter too. ElementSidebar ignores
+        # set_elements when the key is unchanged, so a fixed "closed" key would be
+        # a no-op on the second close of an open → close → open → close cycle,
+        # leaving the panel stuck open.
+        open_count = cl.user_session.get("_sidebar_open_count") or 0
+        await cl.ElementSidebar.set_elements([], key=f"closed-o{open_count}")
+        cl.user_session.set("dossier_revealed", False)
+    else:
+        await reveal_dossier_canvas()
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +338,87 @@ UPDATE_INVESTIGATION_ITEM_TOOL: dict[str, Any] = {
         "required": ["item_id", "value"],
     },
 }
+
+
+PROPOSE_STRUCTURE_TOOL: dict[str, Any] = {
+    "name": "propose_structure",
+    "description": (
+        "Generate the initial dossier skeleton once the investigation phase gate has "
+        "been reached. Call this EXACTLY ONCE, when the journalist is ready to start "
+        "building the document and the document is still empty. Python builds a "
+        "fixed-section markdown skeleton from the recorded investigation state; you "
+        "only optionally supply a concise topic label for the headings. After the "
+        "skeleton exists, use apply_ops (NOT this tool) for all structural changes."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "topic_area": {
+                "type": "string",
+                "description": (
+                    "Optional concise, heading-friendly label (<= 60 chars) for the "
+                    "investigation topic, e.g. 'Dengue and Climate in SE Brazil'. If "
+                    "omitted, the skeleton derives the label from the recorded "
+                    "topic_definition value."
+                ),
+            },
+        },
+        "required": [],
+    },
+}
+
+
+# Markdown control characters stripped from topic labels so a topic can't distort
+# or escape the heading it is injected into (nested "#" heading, "`" code span,
+# "*"/"_" emphasis, "[" / "]" link/anchor brackets).
+_MARKDOWN_CTRL = str.maketrans("", "", "`*_[]#")
+
+
+def _derive_topic_label(state: dict[str, dict[str, Any]] | None, topic_area: str | None) -> str:
+    """Pick a concise heading label: explicit topic_area, else topic_definition value, else fallback."""
+    if topic_area:
+        label = topic_area
+    else:
+        entry = state.get("topic_definition") if isinstance(state, dict) else None
+        raw = entry.get("value") if isinstance(entry, dict) else None
+        label = str(raw) if raw else ""
+    # Strip newlines + Markdown control chars, then collapse whitespace runs so the
+    # label renders cleanly inside the "## Part 1: <label>" heading.
+    label = label.replace("\r", " ").replace("\n", " ").translate(_MARKDOWN_CTRL)
+    label = " ".join(label.split())
+    if len(label) > 60:
+        label = label[:57].rstrip() + "..."
+    return label or "Investigation Overview"
+
+
+def _build_dossier_skeleton(
+    state: dict[str, dict[str, Any]] | None, topic_area: str | None = None
+) -> tuple[str, list[str]]:
+    """Build the fixed-section dossier skeleton. Returns (markdown, section_headings).
+
+    Pure function — no Chainlit access — so it can be unit-tested directly.
+    """
+    topic = _derive_topic_label(state, topic_area)
+    sections = [
+        "Executive Summary",
+        f"Part 1: {topic}",
+        "Case Studies",
+        "Suggested Stories (Pautas Sugeridas)",
+        "Methodology and Sources",
+    ]
+    skeleton = (
+        "# Executive Summary\n\n"
+        "[Add key statistics and headline findings here.]\n\n"
+        f"## Part 1: {topic}\n\n"
+        "[Add analysis here.]\n\n"
+        "## Case Studies\n\n"
+        "[Profile specific entities here.]\n\n"
+        "## Suggested Stories (Pautas Sugeridas)\n\n"
+        "[Add investigative angles here.]\n\n"
+        "## Methodology and Sources\n\n"
+        "[Document data sources and methodology here.]\n"
+    )
+    return skeleton, sections
 
 
 def apply_single_op(content: str, op: dict) -> tuple[str, str | None]:
@@ -416,6 +516,25 @@ async def _handle_apply_ops(tool_input: dict) -> str:
     if summary:
         await cl.Message(content=summary).send()
     return "ok"
+
+
+async def _handle_propose_structure(tool_input: dict) -> str:
+    """Create the dossier skeleton and populate the lazily-created doc.
+
+    Returns a JSON string. Does NOT open the sidebar — the journalist reveals the
+    canvas via the Story 10.6 affordance. Refuses to overwrite existing content.
+    """
+    doc = ensure_dossier_doc()
+    existing = (doc.props.get("content") or "").strip()
+    if existing:
+        return json.dumps({"status": "noop", "reason": "skeleton already exists"})
+
+    state = cl.user_session.get("investigation")
+    topic_area = (tool_input.get("topic_area") or "").strip() or None
+    skeleton, sections = _build_dossier_skeleton(state, topic_area)
+    doc.props["phase"] = "dossier"
+    await update_dossier_content(skeleton)
+    return json.dumps({"status": "ok", "sections": sections})
 
 
 # ---------------------------------------------------------------------------
@@ -582,8 +701,22 @@ async def on_chat_resume(thread: dict) -> None:
     cl.user_session.set("history", history)
 
     # Re-initialise dossier session state on resume.
-    cl.user_session.set("dossier", {"phase": "investigating", "content": "", "version": 0})
+    # If propose_structure was previously called in this thread the session was in
+    # dossier phase — restore the phase flag and auto-reveal the canvas so the
+    # user immediately sees their dossier (the one-shot "Open dossier" action is
+    # gone after first use; auto-reveal avoids a dead end on resume).
+    # Tool steps are persisted as cl.Step(name="🔧 {tool_name}", type="tool") by
+    # the agentic loop. Match the exact tool step — type AND full name — so resume
+    # is not tripped by an error message, assistant prose mentioning the tool, or a
+    # future tool whose name merely contains "propose_structure".
+    is_dossier = any(
+        step.get("type") == "tool" and (step.get("name") or "") == "🔧 propose_structure" for step in steps
+    )
+    dossier_phase = "dossier" if is_dossier else "investigating"
+    cl.user_session.set("dossier", {"phase": dossier_phase, "content": "", "version": 0})
     cl.user_session.set("investigation", _empty_investigation_state())
+    if is_dossier:
+        await reveal_dossier_canvas()
 
     # Close any existing MCP stack before reconnecting (prevents connection leaks)
     existing_stack = cl.user_session.get(_MCP_EXIT_STACK_KEY)
@@ -768,6 +901,7 @@ async def _agentic_loop(
         combined_tools.append(UPDATE_INVESTIGATION_ITEM_TOOL)
         if phase == "dossier":
             combined_tools.append(APPLY_OPS_TOOL)
+            combined_tools.append(PROPOSE_STRUCTURE_TOOL)
         return {
             "model": settings.claude_model,
             "max_tokens": settings.claude_max_tokens,
@@ -858,6 +992,12 @@ async def _agentic_loop(
                     except Exception as exc:
                         logger.error("update_investigation_item failed: %s", exc)
                         tool_output = f"Error calling update_investigation_item: {exc}"
+                elif tool_name == "propose_structure":
+                    try:
+                        tool_output = await _handle_propose_structure(tool_input)
+                    except Exception as exc:
+                        logger.error("propose_structure failed: %s", exc)
+                        tool_output = f"Error calling propose_structure: {exc}"
                 elif mcp_session is not None:
                     try:
                         call_result = await mcp_session.call_tool(tool_name, arguments=tool_input)
