@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -106,6 +107,8 @@ def update_investigation_item(item_id: str, value: Any) -> dict[str, Any]:
     """Mark an investigation checklist item as complete and return status."""
     if item_id not in _INVESTIGATION_ITEMS:
         return {"error": f"Unknown item_id: '{item_id}'"}
+
+    if item_id == "data_sources_validation":
         if not cl.user_session.get(_DATA_VALIDATION_FLAG, False):
             return {
                 "error": (
@@ -523,6 +526,42 @@ async def _handle_apply_ops(tool_input: dict) -> str:
     if summary:
         await cl.Message(content=summary).send()
     return "ok"
+
+
+_METHODOLOGY_HEADING = "## Methodology and Sources"
+# Match the heading only as a standalone line (optional trailing whitespace) so that
+# deeper headings (e.g. "### Methodology and Sources") or the phrase appearing in prose
+# or a code fence never false-match and corrupt the document. See code-review 2026-05-30.
+_METHODOLOGY_HEADING_RE = re.compile(r"^## Methodology and Sources[ \t]*$", re.MULTILINE)
+
+
+async def _sync_dossier_references_section(doc: cl.CustomElement, refs: list[dict[str, Any]]) -> None:
+    """Replace the contents of the dossier's "Methodology and Sources" section with
+    the deterministic references block built from collected tool outputs.
+
+    The section is the LAST section of the propose_structure skeleton. If the user
+    has restructured the dossier and the heading is absent, the references block is
+    appended as a fresh section at the end of the document.
+    """
+    from app.citations import format_reference_list  # local import to keep cycle-free
+
+    block = format_reference_list(refs)
+    content: str = doc.props.get("content", "")
+    match = _METHODOLOGY_HEADING_RE.search(content)
+    if match is not None:
+        # Replace EVERYTHING from the heading line to end-of-document (the section is
+        # system-owned and the last section of the skeleton — documented tradeoff).
+        before = content[: match.start()]
+        new_content = before.rstrip() + "\n\n" + _METHODOLOGY_HEADING + "\n\n" + block + "\n"
+    else:
+        new_content = content.rstrip() + "\n\n" + _METHODOLOGY_HEADING + "\n\n" + block + "\n"
+    if new_content == content:
+        return
+    doc.props["content"] = new_content
+    doc.props["version"] = int(doc.props.get("version", 0)) + 1
+    doc.content = json.dumps(doc.props)
+    await doc.update()
+    await _refresh_dossier_canvas()
 
 
 async def _handle_propose_structure(tool_input: dict) -> str:
@@ -985,6 +1024,16 @@ async def _agentic_loop(
                 final_text += ref_block
                 # Attach structured references to message metadata for Story 9.2/9.3
                 msg.metadata = {"references": refs}
+
+                # Story 12.3: also flow the same references into the dossier doc's
+                # "Methodology and Sources" section when in dossier phase.
+                dossier_state = cl.user_session.get("dossier")
+                if (
+                    isinstance(dossier_state, dict)
+                    and dossier_state.get("phase") == "dossier"
+                    and (doc := cl.user_session.get("doc")) is not None
+                ):
+                    await _sync_dossier_references_section(doc, refs)
 
             return final_text
 

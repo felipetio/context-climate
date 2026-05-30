@@ -3901,3 +3901,357 @@ class TestDataValidationGate:
         assert "update_investigation_item" in INVESTIGATION_SYSTEM_PROMPT
         assert "indicator_code" in INVESTIGATION_SYSTEM_PROMPT
         assert "values_by_year" in INVESTIGATION_SYSTEM_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# Story 12.3 helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_api_ref(
+    source="World Development Indicators",
+    indicator_code="EG_ELC_ACCS_ZS",
+    indicator_name="Access to electricity",
+    database_id="WB_WDI",
+    years="2022",
+) -> dict:
+    """Build a minimal deduped API reference dict as output of deduplicate_references."""
+    return {
+        "id": 1,
+        "source": source,
+        "indicator_code": indicator_code,
+        "indicator_name": indicator_name,
+        "database_id": database_id,
+        "years": years,
+        "type": "api",
+    }
+
+
+def _make_get_data_mcp_result_with_citation() -> str:
+    """JSON string that extract_references will turn into one API ref."""
+    import json
+
+    return json.dumps(
+        {
+            "success": True,
+            "data": [
+                {
+                    "CITATION_SOURCE": "World Development Indicators",
+                    "INDICATOR": "WB_WDI_EG_ELC_ACCS_ZS",
+                    "DATABASE_ID": "WB_WDI",
+                    "TIME_PERIOD": "2022",
+                    "COMMENT_TS": "Access to electricity",
+                }
+            ],
+            "total_count": 1,
+            "returned_count": 1,
+            "truncated": False,
+        }
+    )
+
+
+@pytest.mark.usefixtures("set_required_env_vars")
+class TestCitationFlowIntoDossierSections:
+    """Story 12.3: Inline citation format, Methodology section sync, and round-finalisation wiring."""
+
+    # ------------------------------------------------------------------
+    # AC1: DOSSIER_SYSTEM_PROMPT directive with concrete worked example
+    # ------------------------------------------------------------------
+
+    def test_dossier_prompt_directs_inline_citation_with_example(self, reload_chat):
+        """AC1: DOSSIER_SYSTEM_PROMPT includes DATA_SOURCE directive, format spec, and a worked example."""
+        from app.prompts import DOSSIER_SYSTEM_PROMPT
+
+        assert "DATA_SOURCE" in DOSSIER_SYSTEM_PROMPT
+        assert "(<DATA_SOURCE>, <INDICATOR>, <year or year range>)" in DOSSIER_SYSTEM_PROMPT
+        # Distinctive fragment from the worked example
+        assert "WB_WDI_EG_ELC_ACCS_ZS" in DOSSIER_SYSTEM_PROMPT
+
+    # ------------------------------------------------------------------
+    # AC3: Methodology-section non-edit rule in the prompt
+    # ------------------------------------------------------------------
+
+    def test_dossier_prompt_warns_against_editing_methodology_section(self, reload_chat):
+        """AC3: DOSSIER_SYSTEM_PROMPT contains the three required phrases that make up the rule."""
+        from app.prompts import DOSSIER_SYSTEM_PROMPT
+
+        assert "Methodology and Sources" in DOSSIER_SYSTEM_PROMPT
+        assert "automatically" in DOSSIER_SYSTEM_PROMPT
+        assert "apply_ops" in DOSSIER_SYSTEM_PROMPT
+
+    # ------------------------------------------------------------------
+    # AC2: _sync_dossier_references_section helper — existing heading
+    # ------------------------------------------------------------------
+
+    async def test_sync_dossier_references_replaces_existing_methodology_section(self, reload_chat):
+        """AC2: helper replaces everything from the heading to EOF with the fresh refs block."""
+        import json as _json
+
+        stale_placeholder = "[Document data sources and methodology here.]\n"
+        doc = MagicMock()
+        doc.props = {
+            "content": f"# Exec\n\n[stuff]\n\n## Methodology and Sources\n\n{stale_placeholder}",
+            "version": 1,
+            "phase": "dossier",
+        }
+        doc.content = _json.dumps(doc.props)
+        doc.update = AsyncMock()
+        refs = [_make_api_ref()]
+
+        with patch("app.chat._refresh_dossier_canvas", new_callable=AsyncMock) as mock_refresh:
+            await reload_chat._sync_dossier_references_section(doc, refs)
+
+        # Content starts correctly, ends with refs block, has exactly one heading
+        assert doc.props["content"].startswith("# Exec")
+        assert doc.props["content"].count("## Methodology and Sources") == 1
+        assert "World Development Indicators" in doc.props["content"]
+        # Version bumped
+        assert doc.props["version"] == 2
+        # re-sync invariant
+        assert doc.content == _json.dumps(doc.props)
+        # update and refresh both awaited
+        doc.update.assert_awaited_once()
+        mock_refresh.assert_awaited_once()
+
+    # ------------------------------------------------------------------
+    # AC2: _sync_dossier_references_section helper — heading absent
+    # ------------------------------------------------------------------
+
+    async def test_sync_dossier_references_appends_section_when_heading_absent(self, reload_chat):
+        """AC2: when heading is absent, refs block is appended as a new section at the end."""
+        import json as _json
+
+        doc = MagicMock()
+        doc.props = {"content": "# Exec\n\nNo methodology heading.\n", "version": 1, "phase": "dossier"}
+        doc.content = _json.dumps(doc.props)
+        doc.update = AsyncMock()
+        refs = [_make_api_ref()]
+
+        with patch("app.chat._refresh_dossier_canvas", new_callable=AsyncMock):
+            await reload_chat._sync_dossier_references_section(doc, refs)
+
+        content = doc.props["content"]
+        assert "## Methodology and Sources" in content
+        # Heading appears at the end (no content after the refs block except whitespace)
+        heading_idx = content.index("## Methodology and Sources")
+        assert heading_idx > content.index("# Exec")
+        assert "World Development Indicators" in content[heading_idx:]
+
+    # ------------------------------------------------------------------
+    # AC2: _sync_dossier_references_section — no-op guard
+    # ------------------------------------------------------------------
+
+    async def test_sync_dossier_references_is_noop_when_content_unchanged(self, reload_chat):
+        """AC2: second call with same refs is a no-op — version and update count unchanged."""
+        import json as _json
+
+        doc = MagicMock()
+        doc.props = {
+            "content": "# Exec\n\n[stuff]\n\n## Methodology and Sources\n\n[stale placeholder]\n",
+            "version": 1,
+            "phase": "dossier",
+        }
+        doc.content = _json.dumps(doc.props)
+        doc.update = AsyncMock()
+        refs = [_make_api_ref()]
+
+        with patch("app.chat._refresh_dossier_canvas", new_callable=AsyncMock):
+            # First call — should write
+            await reload_chat._sync_dossier_references_section(doc, refs)
+            assert doc.props["version"] == 2
+            assert doc.update.await_count == 1
+
+            # Second call with identical refs — should be a no-op
+            await reload_chat._sync_dossier_references_section(doc, refs)
+
+        assert doc.props["version"] == 2
+        assert doc.update.await_count == 1  # no second update
+
+    # ------------------------------------------------------------------
+    # Code-review 2026-05-30: heading match must be line-anchored
+    # ------------------------------------------------------------------
+
+    async def test_sync_dossier_references_does_not_false_match_deeper_heading(self, reload_chat):
+        """Code-review 2026-05-30 (line-anchor patch): a deeper "### Methodology and Sources"
+        heading must NOT be consumed as the system-owned section. The H3 and its body survive
+        intact, no orphaned "#" is left from a mid-line split, and a single fresh H2 section
+        is appended at the end."""
+        import json as _json
+
+        doc = MagicMock()
+        doc.props = {
+            "content": "# Exec\n\n### Methodology and Sources\n\nJournalist's own notes.\n",
+            "version": 1,
+            "phase": "dossier",
+        }
+        doc.content = _json.dumps(doc.props)
+        doc.update = AsyncMock()
+        refs = [_make_api_ref()]
+
+        with patch("app.chat._refresh_dossier_canvas", new_callable=AsyncMock):
+            await reload_chat._sync_dossier_references_section(doc, refs)
+
+        content = doc.props["content"]
+        # The journalist's deeper heading and its body are untouched.
+        assert "### Methodology and Sources" in content
+        assert "Journalist's own notes." in content
+        # No orphaned "#" fragment from a mid-line substring split (the pre-patch partition bug).
+        assert "\n#\n" not in content
+        # Exactly one real, line-anchored H2 section — the freshly appended one.
+        assert len(reload_chat._METHODOLOGY_HEADING_RE.findall(content)) == 1
+        # The refs block lands after the journalist's notes (appended at the end).
+        assert content.index("World Development Indicators") > content.index("Journalist's own notes.")
+
+    # ------------------------------------------------------------------
+    # AC4: round-finalisation skips sync when no refs
+    # ------------------------------------------------------------------
+
+    async def test_round_finalisation_skips_dossier_sync_when_no_refs(self, reload_chat):
+        """AC4: when all_tool_outputs is empty (no tool calls), _sync_dossier_references_section is not called."""
+        msg_mock = _make_fake_cl_message()
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "# Exec\n\n## Methodology and Sources\n\n[placeholder]\n", "version": 1}
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(dossier={"phase": "dossier"}, doc=doc_mock),
+            ),
+            patch("app.chat.client.messages.stream", return_value=FakeStream(["Answer."], stop_reason="end_turn")),
+            patch("app.chat._sync_dossier_references_section", new_callable=AsyncMock) as mock_sync,
+        ):
+            incoming = MagicMock()
+            incoming.content = "Just a question, no data needed."
+            await reload_chat.on_message(incoming)
+
+        mock_sync.assert_not_awaited()
+
+    # ------------------------------------------------------------------
+    # AC4: round-finalisation skips sync in investigating phase
+    # ------------------------------------------------------------------
+
+    async def test_round_finalisation_skips_dossier_sync_in_investigating_phase(self, reload_chat):
+        """AC4: when in investigating phase, sync is not called even if refs exist; chat ref block fires."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="get_data",
+            input={"database_id": "WB_WDI", "indicator": "EG.ELC.ACCS.ZS"},
+            id="toolu_gd_inv",
+        )
+        text_block = _make_fake_content_block("text", "Here are the findings.")
+        stream_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        final_tokens = ["Here are the findings."]
+        stream_final = FakeStream(tokens=final_tokens, stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_tool if call_count == 1 else stream_final
+
+        fake_mcp = AsyncMock()
+        fake_mcp_result = MagicMock()
+        fake_mcp_result.isError = False
+        fake_text = MagicMock()
+        fake_text.text = _make_get_data_mcp_result_with_citation()
+        fake_mcp_result.content = [fake_text]
+        fake_mcp.call_tool = AsyncMock(return_value=fake_mcp_result)
+
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(
+                    mcp_session=fake_mcp, mcp_tools=tools, dossier={"phase": "investigating"}
+                ),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch("app.chat._sync_dossier_references_section", new_callable=AsyncMock) as mock_sync,
+        ):
+            incoming = MagicMock()
+            incoming.content = "What electricity data is available?"
+            await reload_chat.on_message(incoming)
+
+        # Dossier sync must NOT fire in investigating phase
+        mock_sync.assert_not_awaited()
+        # Chat-side ref block MUST fire (existing Story 9.1 behaviour preserved)
+        assert "World Development Indicators" in msg_mock.content
+
+    # ------------------------------------------------------------------
+    # AC2: round-finalisation calls sync in dossier phase
+    # ------------------------------------------------------------------
+
+    async def test_round_finalisation_calls_dossier_sync_in_dossier_phase(self, reload_chat):
+        """AC2: when in dossier phase with a doc and refs present, _sync_dossier_references_section is called."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="get_data",
+            input={"database_id": "WB_WDI", "indicator": "EG.ELC.ACCS.ZS"},
+            id="toolu_gd_dos",
+        )
+        text_block = _make_fake_content_block("text", "Data added to dossier.")
+        stream_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(
+            tokens=["Data added to dossier."], stop_reason="end_turn", content_blocks=[text_block]
+        )
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_tool if call_count == 1 else stream_final
+
+        fake_mcp = AsyncMock()
+        fake_mcp_result = MagicMock()
+        fake_mcp_result.isError = False
+        fake_text = MagicMock()
+        fake_text.text = _make_get_data_mcp_result_with_citation()
+        fake_mcp_result.content = [fake_text]
+        fake_mcp.call_tool = AsyncMock(return_value=fake_mcp_result)
+
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "# Exec\n\n## Methodology and Sources\n\n[placeholder]\n", "version": 1}
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(
+                    mcp_session=fake_mcp, mcp_tools=tools, dossier={"phase": "dossier"}, doc=doc_mock
+                ),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch("app.chat._sync_dossier_references_section", new_callable=AsyncMock) as mock_sync,
+        ):
+            incoming = MagicMock()
+            incoming.content = "Add electricity data to the dossier."
+            await reload_chat.on_message(incoming)
+
+        # Sync must have been called exactly once with (doc_mock, refs)
+        mock_sync.assert_awaited_once()
+        call_args = mock_sync.call_args
+        assert call_args[0][0] is doc_mock
+        refs_arg = call_args[0][1]
+        assert len(refs_arg) == 1
+        assert refs_arg[0]["type"] == "api"
+        assert refs_arg[0]["source"] == "World Development Indicators"
+        # Chat-side ref block also fires
+        assert "World Development Indicators" in msg_mock.content
