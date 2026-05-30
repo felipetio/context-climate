@@ -1,6 +1,6 @@
 # Story 5.4: search_local_indicators MCP Tool
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -14,7 +14,7 @@ so that I can quickly find relevant indicators before making API calls.
 
 1. **Given** the MCP server is running
    **When** a user calls `search_local_indicators(query="CO2 emissions")`
-   **Then** the tool searches the local metadata cache (`mcp_server/metadata_indicators.json`, 1533 records) using a **cascading, first-match-wins relevance score** (FR38):
+   **Then** the tool searches the local metadata cache (`mcp_server/metadata_indicators.json`, 1516 records) using a **cascading, first-match-wins relevance score** (FR38):
    - Exact code match (case-insensitive equality of full code): **100**
    - Code substring (case-insensitive `query in code`): **90**
    - Word in indicator name (any whitespace-split query word equals any whitespace-split name word, lowercase): **80**
@@ -71,7 +71,7 @@ so that I can quickly find relevant indicators before making API calls.
 6. **Given** any successful call
    **When** timed
    **Then** the response is returned in well under 50ms after the first load (NFR13) — trivially satisfied because the data is in memory after the first load and scoring is an O(n) pass over ≤3000 records with cheap string operations
-   **And** the cold-load cost (first call only) is under 500ms (NFR14, inherited from Story 5.2's file-size budget; the 1533-record file is ~1.7 MB)
+   **And** the cold-load cost (first call only) is under 500ms (NFR14, inherited from Story 5.2's file-size budget; the 1516-record file is ~1.7 MB)
    **And** any *automated* timing assertion uses a generous budget (recommended ≥250ms warm, ≥1000ms cold) to avoid CI flakiness — correctness assertions are mandatory; micro-timing is optional and bounded
 
 7. **Given** an unexpected error in the scoring loop, in the loader, or anywhere inside the tool body (e.g. metadata file missing, malformed, or non-list)
@@ -134,7 +134,7 @@ so that I can quickly find relevant indicators before making API calls.
     - [x] Singleton: patch/spy `indicator_cache._load_json` (using `wraps=indicator_cache._load_json` like Story 5.3 did) and assert `spy.call_count == 1` across two consecutive `get_metadata_indicators()` calls
     - [x] **Independence from the popular cache:** call `get_metadata_indicators()` and `get_popular_indicators()` in the same test; assert both succeed and neither pollutes the other's singleton (regression guard for Task 1)
   - [x] Add `class TestSearchLocalMetadata:` (AC1, AC3): covers the pure scoring function
-    - [x] Use a **small in-memory fixture list** patched into `_metadata_indicators` (do NOT exercise the real 1533-record file here — that file's contents drift over time). Example fixture:
+    - [x] Use a **small in-memory fixture list** patched into `_metadata_indicators` (do NOT exercise the real 1516-record file here — that file's contents drift over time). Example fixture:
       ```python
       FIXTURE = [
           {"code": "SP_POP_TOTL", "name": "Population, total", "description": "Total population...", "source": "WDI"},
@@ -191,7 +191,7 @@ It does **NOT** include (these belong to later stories):
 - A separate end-to-end test suite story (Story 5.5 will further audit/extend the test coverage)
 - Re-curating or regenerating `popular_indicators.json` or `metadata_indicators.json` (Stories 5.1, 5.2)
 
-The data files **already exist and are committed**: `mcp_server/popular_indicators.json` (28 entries, dict-wrapped) and `mcp_server/metadata_indicators.json` (1533 entries, bare list). You are **consuming** them.
+The data files **already exist and are committed**: `mcp_server/popular_indicators.json` (28 entries, dict-wrapped) and `mcp_server/metadata_indicators.json` (1516 entries, bare list). You are **consuming** them.
 
 ### Critical contract deviation — the response shape is NOT the standard tool contract
 
@@ -529,7 +529,7 @@ def test_metadata_singleton_caches_after_first_load():
 
 ### Tests for the pure scoring function — use a fixture list, not the real file
 
-`search_local_metadata` is a pure function (given the cached list). Test it by **patching the singleton directly** with a small fixture list rather than exercising the real 1533-record metadata file. Rationale:
+`search_local_metadata` is a pure function (given the cached list). Test it by **patching the singleton directly** with a small fixture list rather than exercising the real 1516-record metadata file. Rationale:
 
 - Stable: file contents drift as the catalog regenerates; brittle to depend on specific real codes
 - Fast: no I/O, no JSON parse
@@ -611,7 +611,7 @@ Expected: 5 results, all with `relevance_score >= 70` (CO2 is in many WDI codes 
 - [Source: _bmad-output/planning-artifacts/architecture.md#Architecture Addendum: Epics 5-7] — `search_local_indicators` tool signature + docstring (lines 805–827), `indicator_cache.py` design (`get_metadata_indicators`, `search_local_metadata`, lines 1009–1064), `config.py` addendum (line 784, "add DATA360_LOCAL_SEARCH_LIMIT default"), implementation sequence step 9–10 (lines 1133–1134), architectural boundary (`indicator_cache.py` is the only JSON reader, lines 1166–1171)
 - [Source: mcp_server/server.py] — Established `@mcp.tool()` async pattern, `try/except` → `{"success": False, "error": ..., "error_type": "api_error"}`, top-level `from mcp_server import config, indicator_cache` imports, position of `list_popular_indicators` (~line 250)
 - [Source: mcp_server/indicator_cache.py] — Existing `_load_json` helper (UTF-8, do not redefine), `_popular_indicators` singleton precedent for the new `_metadata_indicators` singleton
-- [Source: mcp_server/metadata_indicators.json] — The data file being consumed: bare JSON array, 1533 entries, fields `code`/`name`/`description`/`source`. Source field is e.g. "World Development Indicators (WDI)" (~33 chars — well under the 100-char truncation budget)
+- [Source: mcp_server/metadata_indicators.json] — The data file being consumed: bare JSON array, 1516 entries, fields `code`/`name`/`description`/`source`. Source field is e.g. "World Development Indicators (WDI)" (~33 chars — well under the 100-char truncation budget)
 - [Source: mcp_server/config.py] — Established `_int_env` helper with `min_val` param; placement convention for env-driven constants
 - [Source: tests/mcp_server/test_indicator_cache.py] — Story 5.3's test patterns: `_reset_cache` fixture (extend in-place), `INDICATOR_KEYS = {...}` exact-keys assertion idiom, `unittest.mock.patch(..., wraps=...)` for singleton-call counting, error-path test with `side_effect=RuntimeError("boom")`, `_client` patched to `None` for "no API needed" proof
 - [Source: _bmad-output/implementation-artifacts/5-1-popular-indicators-data-file.md#Review Findings] — UTF-8 encoding, exact-keys assertion guidance, scope-fencing precedent
@@ -650,3 +650,12 @@ Claude Opus 4.7 (1M context) — claude-opus-4-7
 ### Change Log
 
 - 2026-05-30 — Story implementation completed in the original `claude/gallant-pascal-526e2f` worktree (Tasks 1–4) and recovered to `story/epic-5-recovery` after worktree deletion. Task 5 (quality gate) executed during recovery: 193 mcp_server tests pass, ruff clean.
+
+## Review Findings
+
+_Code review 2026-05-30 (Blind Hunter + Edge Case Hunter + Acceptance Auditor). Outcome: 2 patch, 2 defer, 12 dismissed. No AC violations; all three layers confirmed the code is faithful to this spec's verbatim algorithm and intentional deviations._
+
+- [x] [Review][Patch] Stale record count in spec — AC1/Dev Notes say "1533 records" but the regenerated `metadata_indicators.json` is a bare list of **1516** (verified) [5-4-search-local-indicators-mcp-tool.md:17,74,194,614] — code does not depend on the count (uses `len()`); doc accuracy only. The Dev Agent Record already acknowledges "1516 (down from 1533 with dups)".
+- [x] [Review][Patch] Null/non-string record field crashes the whole search — FIXED: `(ind.get(...) or "")` null-coalesce on all four fields (scoring reads + result construction); 193/193 tests pass, ruff clean [mcp_server/indicator_cache.py:77-79,102-103] — `ind.get("code", "").lower()` and `ind.get("description", "")[:200]` only default on *absent* keys; a present-but-`null` or non-string field raises (`None.lower()` / `None[:200]`), caught by the tool's broad `except` and mislabeled `error_type="api_error"`, failing **every** query. Latent only: the current file is clean (0 nulls). Unambiguous hardening: `(ind.get("code") or "")`.
+- [x] [Review][Defer] Relevance-quality gaps in the (spec-verbatim) scoring algorithm [mcp_server/indicator_cache.py:67-109] — deferred, future Story 5.5 audit territory
+- [x] [Review][Defer] Pre-existing `indicator_cache.py` robustness items (lazy-singleton race, blocking I/O in async, no defensive copy of returned cached list) [mcp_server/indicator_cache.py:40-49] — deferred, explicitly pre-existing per `deferred-work.md`

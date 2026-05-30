@@ -67,9 +67,12 @@ def search_local_metadata(query: str, limit: int = 20) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
 
     for ind in indicators:
-        code = ind.get("code", "").lower()
-        name = ind.get("name", "").lower()
-        desc = ind.get("description", "").lower()
+        # `or ""` (not just a .get default) guards against present-but-null
+        # fields in the data file — a single null would otherwise crash the
+        # whole search via None.lower().
+        code = (ind.get("code") or "").lower()
+        name = (ind.get("name") or "").lower()
+        desc = (ind.get("description") or "").lower()
         name_words = name.split()
 
         if query_lower == code:
@@ -90,10 +93,10 @@ def search_local_metadata(query: str, limit: int = 20) -> list[dict[str, Any]]:
 
         results.append(
             {
-                "indicator": ind.get("code", ""),
-                "name": ind.get("name", ""),
-                "description": ind.get("description", "")[:200],
-                "source": ind.get("source", "")[:100],
+                "indicator": ind.get("code") or "",
+                "name": ind.get("name") or "",
+                "description": (ind.get("description") or "")[:200],
+                "source": (ind.get("source") or "")[:100],
                 "relevance_score": score,
             }
         )
