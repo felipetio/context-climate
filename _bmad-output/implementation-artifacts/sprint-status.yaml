@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-24
-last_updated: 2026-05-30  # Epic 12 fully drafted (12.1-12.4 ready-for-dev), epic-12 -> in-progress. Prior: epic-10 -> done (closed formally)
+last_updated: 2026-05-30  # Epic 5 recovered from deleted gallant-pascal-526e2f worktree: epic-4 -> cancelled, epic-5 -> in-progress (5-1/5-2/5-3 done, 5-4 in-progress with implementation files restored; metadata_indicators.json must be regenerated). Earlier: Epic 12 fully drafted (12.1-12.4 ready-for-dev), epic-12 -> in-progress; epic-10 -> done (closed formally)
 project: bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -74,17 +74,23 @@ development_status:
   epic-3-retrospective: done
 
   # Epic 4: Fact-Check & Claim Verification
-  epic-4: backlog
-  4-1-claim-input-and-indicator-identification: backlog
-  4-2-verdict-generation-with-source-citations: backlog
+  # Cancelled 2026-05-30: superseded by the dossier pivot (Epics 10-13). The fact-check
+  # flow assumed a conversational query mode that on_message no longer runs. Not implemented.
+  epic-4: cancelled
+  4-1-claim-input-and-indicator-identification: cancelled
+  4-2-verdict-generation-with-source-citations: cancelled
   epic-4-retrospective: optional
 
   # Epic 5: Offline Local Indicator Discovery
-  epic-5: backlog
-  5-1-popular-indicators-data-file: backlog
-  5-2-metadata-indicators-data-file: backlog
-  5-3-list-popular-indicators-mcp-tool: backlog
-  5-4-search-local-indicators-mcp-tool: backlog
+  # RECOVERED 2026-05-30 from the deleted gallant-pascal-526e2f worktree. Stories
+  # 5-1, 5-2, 5-3 implementations were reviewed and approved before deletion (sit
+  # uncommitted in the worktree); 5-4 was in-progress (4 of 5 tasks complete).
+  # metadata_indicators.json must be regenerated via scripts/generate_metadata_indicators.py.
+  epic-5: in-progress
+  5-1-popular-indicators-data-file: done
+  5-2-metadata-indicators-data-file: done
+  5-3-list-popular-indicators-mcp-tool: done
+  5-4-search-local-indicators-mcp-tool: in-progress
   5-5-offline-indicator-search-test-suite: backlog
   epic-5-retrospective: optional
 
