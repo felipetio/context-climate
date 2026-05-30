@@ -1,0 +1,172 @@
+{
+  "indicators": [
+    {
+      "category": "Climate & Environment",
+      "code": "EN_GHG_CO2_MT_CE_AR5",
+      "name": "CO2 emissions (total, excl. LULUCF) (Mt CO2e)",
+      "description": "Carbon dioxide emissions from all sectors excluding land use, land-use change, and forestry, measured in megatons of CO2 equivalent (AR5 methodology)."
+    },
+    {
+      "category": "Climate & Environment",
+      "code": "EN_GHG_ALL_PC_CE_AR5",
+      "name": "Total greenhouse gas emissions per capita (t CO2e/capita)",
+      "description": "Total greenhouse gas emissions per person excluding land use, land-use change, and forestry, in tonnes of CO2 equivalent (AR5 methodology)."
+    },
+    {
+      "category": "Climate & Environment",
+      "code": "EN_GHG_ALL_MT_CE_AR5",
+      "name": "Total greenhouse gas emissions excl. LULUCF (Mt CO2e)",
+      "description": "Aggregate greenhouse gas emissions from all sectors excluding land use, land-use change, and forestry, in megatons of CO2 equivalent (AR5 methodology)."
+    },
+    {
+      "category": "Climate & Environment",
+      "code": "ER_PTD_TOTL_ZS",
+      "name": "Terrestrial and marine protected areas (% of total territorial area)",
+      "description": "Proportion of a country's total territorial area — including both land and exclusive economic zone — that is under formal protection."
+    },
+    {
+      "category": "Climate & Environment",
+      "code": "EN_CLC_MDAT_ZS",
+      "name": "Droughts, floods, extreme temperatures (% of population, average)",
+      "description": "Average share of the population affected annually by droughts, floods, or extreme temperature events, reflecting climate-related disaster exposure."
+    },
+    {
+      "category": "Climate & Environment",
+      "code": "ER_H2O_FWTL_ZS",
+      "name": "Annual freshwater withdrawals, total (% of internal resources)",
+      "description": "Total freshwater withdrawn for agriculture, industry, and municipal use as a percentage of a country's total internal renewable freshwater resources."
+    },
+    {
+      "category": "Energy",
+      "code": "EG_ELC_ACCS_ZS",
+      "name": "Access to electricity (% of population)",
+      "description": "Percentage of the total population with access to electricity, including both on-grid and off-grid connections."
+    },
+    {
+      "category": "Energy",
+      "code": "EG_FEC_RNEW_ZS",
+      "name": "Renewable energy consumption (% of total final energy consumption)",
+      "description": "Share of renewable energy — including solar, wind, hydro, geothermal, and modern biofuels — in the country's total final energy consumption."
+    },
+    {
+      "category": "Energy",
+      "code": "EG_ELC_RNEW_ZS",
+      "name": "Renewable electricity output (% of total electricity output)",
+      "description": "Electricity generated from renewable sources — hydropower, wind, solar, geothermal, and biomass — as a share of total electricity production."
+    },
+    {
+      "category": "Energy",
+      "code": "EG_USE_PCAP_KG_OE",
+      "name": "Energy use (kg of oil equivalent per capita)",
+      "description": "Per-capita energy consumption across all sectors, expressed in kilograms of oil equivalent, covering primary energy from all sources."
+    },
+    {
+      "category": "Agriculture & Land Use",
+      "code": "AG_LND_FRST_K2",
+      "name": "Forest area (sq. km)",
+      "description": "Land area covered by natural or planted forests of more than 0.5 hectares with tree canopy cover exceeding 10%, in square kilometers."
+    },
+    {
+      "category": "Agriculture & Land Use",
+      "code": "AG_LND_FRST_ZS",
+      "name": "Forest area (% of land area)",
+      "description": "Forest area as a percentage of total land area, used to track deforestation trends and land-use change over time."
+    },
+    {
+      "category": "Agriculture & Land Use",
+      "code": "AG_LND_AGRI_ZS",
+      "name": "Agricultural land (% of land area)",
+      "description": "Share of total land area classified as arable, under permanent crops, or permanent pasture, indicating the extent of land dedicated to food production."
+    },
+    {
+      "category": "Agriculture & Land Use",
+      "code": "AG_PRD_FOOD_XD",
+      "name": "Food production index (2014-2016 = 100)",
+      "description": "Aggregate measure of food crop production relative to the 2014–2016 base period, covering all edible food crops excluding feed crops."
+    },
+    {
+      "category": "Demographics",
+      "code": "SP_POP_TOTL",
+      "name": "Population, total",
+      "description": "Total resident population, including all nationals and foreign residents, as estimated by the World Bank for mid-year."
+    },
+    {
+      "category": "Demographics",
+      "code": "SP_POP_GROW",
+      "name": "Population growth (annual %)",
+      "description": "Annual rate of population change, reflecting the net effect of births, deaths, and international migration."
+    },
+    {
+      "category": "Demographics",
+      "code": "SP_URB_TOTL_IN_ZS",
+      "name": "Urban population (% of total population)",
+      "description": "Share of the total population living in urban areas, as defined by national statistical offices."
+    },
+    {
+      "category": "Demographics",
+      "code": "SP_DYN_LE00_IN",
+      "name": "Life expectancy at birth, total (years)",
+      "description": "Average number of years a newborn would live if prevailing age-specific mortality rates throughout life remained constant."
+    },
+    {
+      "category": "Economy",
+      "code": "NY_GDP_MKTP_CD",
+      "name": "GDP (current US$)",
+      "description": "Gross domestic product at purchaser's prices in current US dollars, representing the total monetary value of all goods and services produced within a country."
+    },
+    {
+      "category": "Economy",
+      "code": "NY_GDP_PCAP_CD",
+      "name": "GDP per capita (current US$)",
+      "description": "Gross domestic product divided by mid-year population in current US dollars, a standard measure of economic output per person."
+    },
+    {
+      "category": "Economy",
+      "code": "NY_GDP_MKTP_KD_ZG",
+      "name": "GDP growth (annual %)",
+      "description": "Annual percentage growth rate of GDP at market prices, measured in constant local currency and adjusted for inflation."
+    },
+    {
+      "category": "Economy",
+      "code": "SI_POV_DDAY",
+      "name": "Poverty headcount ratio at $3.00 a day (2021 PPP) (% of population)",
+      "description": "Percentage of the population living on less than $3.00 per day at 2021 purchasing power parity, the international (extreme) poverty line."
+    },
+    {
+      "category": "Health",
+      "code": "SH_DYN_MORT",
+      "name": "Mortality rate, under-5 (per 1,000 live births)",
+      "description": "Probability that a child born in a given year will die before reaching age five, expressed per 1,000 live births."
+    },
+    {
+      "category": "Health",
+      "code": "SH_H2O_SMDW_ZS",
+      "name": "People using safely managed drinking water services (% of population)",
+      "description": "Share of the population using drinking water from an improved source that is accessible on premises, available when needed, and free from contamination."
+    },
+    {
+      "category": "Health",
+      "code": "SH_STA_BASS_ZS",
+      "name": "People using at least basic sanitation services (% of population)",
+      "description": "Percentage of the population with access to improved sanitation facilities that are not shared with other households."
+    },
+    {
+      "category": "Infrastructure",
+      "code": "IT_NET_USER_ZS",
+      "name": "Individuals using the Internet (% of population)",
+      "description": "Percentage of individuals who used the Internet in the last three months, regardless of device or connection type."
+    },
+    {
+      "category": "Infrastructure",
+      "code": "IT_CEL_SETS_P2",
+      "name": "Mobile cellular subscriptions (per 100 people)",
+      "description": "Number of active mobile phone subscriptions per 100 inhabitants, including both postpaid and prepaid accounts."
+    },
+    {
+      "category": "Infrastructure",
+      "code": "EG_ELC_ACCS_RU_ZS",
+      "name": "Access to electricity, rural (% of rural population)",
+      "description": "Percentage of the rural population with access to electricity, capturing the urban-rural energy access gap."
+    }
+  ]
+}
