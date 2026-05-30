@@ -1,6 +1,6 @@
 # Story 12.1: MCP Tools in Dossier Session
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -45,51 +45,61 @@ So that the LLM can validate real data before building the document.
 
 ### Task 1: Add an explicit test class for the dossier-session MCP tool contract (AC: 1, 2, 3)
 
-- [ ] Add a new test class `TestMcpToolsInDossierSession` to `tests/app/test_chat.py`, after `TestProposeStructureTool` (file currently ends with `TestToggleDossier` around line 3077+; place the new class adjacent to other phase-aware tool tests).
-  - [ ] Use `@pytest.mark.usefixtures("set_required_env_vars")` and the existing `reload_chat` fixture pattern (see `TestProposeStructureTool` for the exact shape).
-  - [ ] Pull the canonical tool list into a module-level test constant `_EPIC_1_MCP_TOOLS = ("search_indicators", "get_data", "get_metadata", "list_indicators", "get_disaggregation")` at the top of the new class, mirroring the AC text verbatim.
+- [x] Add a new test class `TestMcpToolsInDossierSession` to `tests/app/test_chat.py`, after `TestProposeStructureTool` (file currently ends with `TestToggleDossier` around line 3077+; place the new class adjacent to other phase-aware tool tests).
+  - [x] Use `@pytest.mark.usefixtures("set_required_env_vars")` and the existing `reload_chat` fixture pattern (see `TestProposeStructureTool` for the exact shape).
+  - [x] Pull the canonical tool list into a module-level test constant `_EPIC_1_MCP_TOOLS = ("search_indicators", "get_data", "get_metadata", "list_indicators", "get_disaggregation")` at the top of the new class, mirroring the AC text verbatim.
 
-- [ ] **AC1 / investigating phase** — `test_all_mcp_tools_present_in_investigating_phase`:
-  - [ ] Build `tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]`.
-  - [ ] Capture `kwargs` via the existing `fake_stream` pattern (see `test_propose_structure_registered_in_dossier_phase` at `tests/app/test_chat.py:3024-3049` for the exact captured-kwargs idiom).
-  - [ ] Patch `cl.user_session` with `_make_session_mock_with_history()` (defaults to `dossier={"phase": "investigating"}`).
-  - [ ] Send an `on_message` whose content is anything (e.g., `"hello"`).
-  - [ ] Assert: `passed_names = [t["name"] for t in captured_kwargs["tools"]]` and `set(_EPIC_1_MCP_TOOLS).issubset(set(passed_names))`.
+- [x] **AC1 / investigating phase** — `test_all_mcp_tools_present_in_investigating_phase`:
+  - [x] Build `tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]`.
+  - [x] Capture `kwargs` via the existing `fake_stream` pattern (see `test_propose_structure_registered_in_dossier_phase` at `tests/app/test_chat.py:3024-3049` for the exact captured-kwargs idiom).
+  - [x] Patch `cl.user_session` with `_make_session_mock_with_history()` (defaults to `dossier={"phase": "investigating"}`).
+  - [x] Send an `on_message` whose content is anything (e.g., `"hello"`).
+  - [x] Assert: `passed_names = [t["name"] for t in captured_kwargs["tools"]]` and `set(_EPIC_1_MCP_TOOLS).issubset(set(passed_names))`.
 
-- [ ] **AC1 / dossier phase** — `test_all_mcp_tools_present_in_dossier_phase`:
-  - [ ] Same setup, but `_make_session_mock_with_history(dossier={"phase": "dossier"}, doc=doc_mock)` with `doc_mock.props = {"content": "", "version": 0}` (the dossier branch reads doc props for the system-prompt snapshot — see `app/chat.py:887-890`).
-  - [ ] Assert all 5 tool names are present **and** the dossier-phase tools (`apply_ops`, `propose_structure`) are also present (regression guard so this test fails loudly if the dossier branch ever filters MCP tools).
+- [x] **AC1 / dossier phase** — `test_all_mcp_tools_present_in_dossier_phase`:
+  - [x] Same setup, but `_make_session_mock_with_history(dossier={"phase": "dossier"}, doc=doc_mock)` with `doc_mock.props = {"content": "", "version": 0}` (the dossier branch reads doc props for the system-prompt snapshot — see `app/chat.py:887-890`).
+  - [x] Assert all 5 tool names are present **and** the dossier-phase tools (`apply_ops`, `propose_structure`) are also present (regression guard so this test fails loudly if the dossier branch ever filters MCP tools).
 
-- [ ] **AC2 / investigating phase dispatch** — `test_mcp_tool_call_in_investigating_phase_routes_via_mcp_session`:
-  - [ ] Build a tool_use block with `name="search_indicators"`, `input={"query": "deforestation"}`, `id="toolu_si_01"`.
-  - [ ] Two streams: first stops on `tool_use`, second on `end_turn` (follow the `test_dispatch_calls_propose_structure_handler` pattern — `tests/app/test_chat.py:3024+`).
-  - [ ] Build `mcp_session = AsyncMock()` and configure `mcp_session.call_tool.return_value` to return an MCP `CallToolResult`-like object whose text content equals `"OK_MCP_RESULT"` (use `_make_fake_mcp_result` if present — search `tests/app/test_chat.py` for existing helpers; otherwise inline a `MagicMock` with `.content = [MagicMock(text="OK_MCP_RESULT")]` and patch `_extract_tool_result_text` to return `"OK_MCP_RESULT"`).
-  - [ ] Patch `app.chat.cl.user_session` with `_make_session_mock_with_history()` (investigating phase).
-  - [ ] **Inject** the `mcp_session` mock into the session under `_MCP_SESSION_KEY` (`"mcp_session"`) so `on_message` reads it at `app/chat.py:840`.
-  - [ ] After `await reload_chat.on_message(...)`, assert: `mcp_session.call_tool.assert_awaited_once_with("search_indicators", arguments={"query": "deforestation"})`.
-  - [ ] Assert the tool_result content in the second captured stream call equals `"OK_MCP_RESULT"` (lift the `tool_results` extraction idiom from `test_dispatch_calls_propose_structure_handler`).
+- [x] **AC2 / investigating phase dispatch** — `test_mcp_tool_call_in_investigating_phase_routes_via_mcp_session`:
+  - [x] Build a tool_use block with `name="search_indicators"`, `input={"query": "deforestation"}`, `id="toolu_si_01"`.
+  - [x] Two streams: first stops on `tool_use`, second on `end_turn` (follow the `test_dispatch_calls_propose_structure_handler` pattern — `tests/app/test_chat.py:3024+`).
+  - [x] Build `mcp_session = AsyncMock()` and configure `mcp_session.call_tool.return_value` to return an MCP `CallToolResult`-like object whose text content equals `"OK_MCP_RESULT"` (use `_make_fake_mcp_result` if present — search `tests/app/test_chat.py` for existing helpers; otherwise inline a `MagicMock` with `.content = [MagicMock(text="OK_MCP_RESULT")]` and patch `_extract_tool_result_text` to return `"OK_MCP_RESULT"`).
+  - [x] Patch `app.chat.cl.user_session` with `_make_session_mock_with_history()` (investigating phase).
+  - [x] **Inject** the `mcp_session` mock into the session under `_MCP_SESSION_KEY` (`"mcp_session"`) so `on_message` reads it at `app/chat.py:840`.
+  - [x] After `await reload_chat.on_message(...)`, assert: `mcp_session.call_tool.assert_awaited_once_with("search_indicators", arguments={"query": "deforestation"})`.
+  - [x] Assert the tool_result content in the second captured stream call equals `"OK_MCP_RESULT"` (lift the `tool_results` extraction idiom from `test_dispatch_calls_propose_structure_handler`).
 
-- [ ] **AC2 / dossier phase dispatch** — `test_mcp_tool_call_in_dossier_phase_routes_via_mcp_session`:
-  - [ ] Identical to the investigating-phase test except the session uses `dossier={"phase": "dossier"}` with a `doc_mock`, and the tool name is `get_data` (different MCP tool to broaden coverage).
-  - [ ] Assert the same dispatch + collection behaviour.
+- [x] **AC2 / dossier phase dispatch** — `test_mcp_tool_call_in_dossier_phase_routes_via_mcp_session`:
+  - [x] Identical to the investigating-phase test except the session uses `dossier={"phase": "dossier"}` with a `doc_mock`, and the tool name is `get_data` (different MCP tool to broaden coverage).
+  - [x] Assert the same dispatch + collection behaviour.
 
-- [ ] **AC3 / MCP unavailable** — `test_mcp_tool_call_with_no_session_returns_error_string`:
-  - [ ] Same fake-stream / tool_use setup, but DO NOT set `_MCP_SESSION_KEY` in the session (so `mcp_session is None` at `app/chat.py:840`).
-  - [ ] After `on_message`, assert the captured second stream call's `tool_result` content contains the literal substring `"Error: MCP server is not connected"` and `"search_indicators"` (substring is fine; do not anchor to the full string to keep the test resilient to copy edits in the message).
+- [x] **AC3 / MCP unavailable** — `test_mcp_tool_call_with_no_session_returns_error_string`:
+  - [x] Same fake-stream / tool_use setup, but DO NOT set `_MCP_SESSION_KEY` in the session (so `mcp_session is None` at `app/chat.py:840`).
+  - [x] After `on_message`, assert the captured second stream call's `tool_result` content contains the literal substring `"Error: MCP server is not connected"` and `"search_indicators"` (substring is fine; do not anchor to the full string to keep the test resilient to copy edits in the message).
 
 ### Task 2: Confirm — no production code changes
 
-- [ ] Verify by static reading (NOT by running the diff) that:
-  - [ ] `app/chat.py:900` still reads `combined_tools = list(tools)` (unconditional).
-  - [ ] `app/chat.py:902-904` is the only `if phase == "dossier":` block in `_build_call_kwargs`, and it only **appends** dossier-only tools — it does not filter `tools`.
-  - [ ] `app/chat.py:1001-1007` is the `elif mcp_session is not None:` branch and is reachable when `tool_name` matches an MCP tool (i.e., it sits after the three handler-specific `elif`s for `apply_ops` / `update_investigation_item` / `propose_structure` and before the bare `else:`).
-- [ ] If any of the above is no longer true, STOP and surface the deviation to the user before adding tests — the wiring has regressed and AC1/AC2 must be re-evaluated.
+- [x] Verify by static reading (NOT by running the diff) that:
+  - [x] `app/chat.py:900` still reads `combined_tools = list(tools)` (unconditional).
+  - [x] `app/chat.py:902-904` is the only `if phase == "dossier":` block in `_build_call_kwargs`, and it only **appends** dossier-only tools — it does not filter `tools`.
+  - [x] `app/chat.py:1001-1007` is the `elif mcp_session is not None:` branch and is reachable when `tool_name` matches an MCP tool (i.e., it sits after the three handler-specific `elif`s for `apply_ops` / `update_investigation_item` / `propose_structure` and before the bare `else:`).
+- [x] If any of the above is no longer true, STOP and surface the deviation to the user before adding tests — the wiring has regressed and AC1/AC2 must be re-evaluated.
 
 ### Task 3: Lint, format, full test suite (AC: 1, 2, 3)
 
-- [ ] `uv run ruff check .`
-- [ ] `uv run ruff format --check .`
-- [ ] `uv run pytest -q` — expect the prior baseline + the 5 new tests added in Task 1.
+- [x] `uv run ruff check .`
+- [x] `uv run ruff format --check .`
+- [x] `uv run pytest -q` — expect the prior baseline + the 5 new tests added in Task 1.
+
+### Review Findings
+
+_Code review 2026-05-30 (`/bmad-code-review`): Blind Hunter + Edge Case Hunter + Acceptance Auditor. **Auditor verdict: the diff fully and faithfully satisfies the spec** — all 5 prescribed tests and their prescribed assertions are present, and only `tests/app/test_chat.py` is touched (forbidden-files rule respected). The items below are optional test-strengthenings (patch) and out-of-scope coverage gaps (defer); none block the story._
+
+- [x] [Review][Patch] AC2 routing tests verify `tool_result` content but not `tool_use_id` linkage — added `tr.get("tool_use_id") == "toolu_si_01"` / `"toolu_gd_01"` to both routing assertions so the result is proven threaded back to the originating `tool_use` block (strengthens AC2's "tool_result block carrying tool_output appended to history") [tests/app/test_chat.py:3340, 3407] — APPLIED 2026-05-30
+- [x] [Review][Patch] Dossier-phase presence test omits `update_investigation_item` from its regression guard — it is appended unconditionally at `app/chat.py:901`; added `assert "update_investigation_item" in passed_names` alongside the existing `apply_ops`/`propose_structure` checks [tests/app/test_chat.py:3275] — APPLIED 2026-05-30
+- [x] [Review][Defer] MCP error-path branches untested in this class: `mcp_session.call_tool` raising (`app/chat.py:1005-1007`); the no-session test also does not distinguish the specific "not connected" branch from a generic catch-all [app/chat.py:1005-1012] — deferred, error/no-data handling is Story 12.4 scope
+- [x] [Review][Defer] Multiple MCP `tool_use` blocks in a single assistant turn never exercised (per-block loop) [app/chat.py:963-1023] — deferred, general agentic-loop behavior beyond 12.1's availability/routing contract
+- [x] [Review][Defer] Dossier phase with `doc is None` (phase flipped before `ensure_dossier_doc`) untested — the `doc is not None` ternary that defaults version/content [app/chat.py:887-889] — deferred, `_build_call_kwargs` robustness inherited from Epic 10/11
 
 ---
 
@@ -306,22 +316,26 @@ This story is implemented under the rules captured in `_bmad-output/project-cont
 
 ### Agent Model Used
 
-_To be filled by the dev agent._
+claude-sonnet-4-6
 
 ### Debug Log References
 
-_To be filled by the dev agent._
+No debug issues encountered. Production wiring verified correct per Task 2; tests written directly against existing patterns.
 
 ### Completion Notes List
 
-_To be filled by the dev agent._
+- Verified Task 2 anchors: `combined_tools = list(tools)` is unconditional at `app/chat.py:900`; dossier `if` block only appends (lines 902-904); `elif mcp_session is not None:` at line 1001 follows the three local-handler branches.
+- Added `TestMcpToolsInDossierSession` class to `tests/app/test_chat.py` after `TestProposeStructureTool`, with module-level `_EPIC_1_MCP_TOOLS` constant.
+- 5 new tests cover AC1 (both phases), AC2 (both phases), and AC3 (no-session error). All use existing `FakeStream` / `_make_session_mock_with_history` / `_make_fake_content_block` patterns.
+- No production code modified. Full suite: 409 tests passed (404 baseline + 5 new). Lint and format clean.
 
 ### File List
 
-_To be filled by the dev agent._
+- `tests/app/test_chat.py` — added `_EPIC_1_MCP_TOOLS` constant and `TestMcpToolsInDossierSession` class (5 tests)
 
 ### Change Log
 
 | Date | Notes |
 |---|---|
 | 2026-05-30 | Story created by `/bmad-create-story` (post-11.4 merge to main; sprint-status flips epic-12 → in-progress). |
+| 2026-05-30 | Implemented by dev agent: added `TestMcpToolsInDossierSession` with 5 tests; no production code changes. |

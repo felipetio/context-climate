@@ -3206,6 +3206,270 @@ class TestProposeStructureTool:
 
 
 # ---------------------------------------------------------------------------
+# MCP Tools in Dossier Session (Story 12.1)
+# ---------------------------------------------------------------------------
+
+_EPIC_1_MCP_TOOLS = (
+    "search_indicators",
+    "get_data",
+    "get_metadata",
+    "list_indicators",
+    "get_disaggregation",
+)
+
+
+@pytest.mark.usefixtures("set_required_env_vars")
+class TestMcpToolsInDossierSession:
+    """Story 12.1: MCP tools available and dispatchable in investigating and dossier phases."""
+
+    async def test_all_mcp_tools_present_in_investigating_phase(self, reload_chat):
+        """AC1: all 5 MCP tools appear in combined_tools when phase is investigating."""
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(mcp_tools=tools, dossier={"phase": "investigating"}),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hello"
+            await reload_chat.on_message(incoming)
+
+        passed_names = [t["name"] for t in (captured_call_kwargs.get("tools") or [])]
+        assert set(_EPIC_1_MCP_TOOLS).issubset(set(passed_names))
+
+    async def test_all_mcp_tools_present_in_dossier_phase(self, reload_chat):
+        """AC1: all 5 MCP tools appear in combined_tools when phase is dossier; dossier tools also present."""
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "", "version": 0}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(mcp_tools=tools, dossier={"phase": "dossier"}, doc=doc_mock),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hello"
+            await reload_chat.on_message(incoming)
+
+        passed_names = [t["name"] for t in (captured_call_kwargs.get("tools") or [])]
+        assert set(_EPIC_1_MCP_TOOLS).issubset(set(passed_names))
+        assert "apply_ops" in passed_names
+        assert "propose_structure" in passed_names
+        assert "update_investigation_item" in passed_names
+
+    async def test_mcp_tool_call_in_investigating_phase_routes_via_mcp_session(self, reload_chat):
+        """AC2: MCP tool call routes through mcp_session.call_tool in investigating phase."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="search_indicators",
+            input={"query": "deforestation"},
+            id="toolu_si_01",
+        )
+        text_block = _make_fake_content_block("text", "Results found.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Results found."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+        captured_calls = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_calls.append(kwargs)
+            return stream_with_tool if call_count == 1 else stream_final
+
+        fake_mcp_result = MagicMock()
+        fake_mcp_result.isError = False
+        fake_text_content = MagicMock()
+        fake_text_content.text = "OK_MCP_RESULT"
+        fake_mcp_result.content = [fake_text_content]
+
+        mcp_session = AsyncMock()
+        mcp_session.call_tool = AsyncMock(return_value=fake_mcp_result)
+
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(
+                    mcp_session=mcp_session, mcp_tools=tools, dossier={"phase": "investigating"}
+                ),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            incoming = MagicMock()
+            incoming.content = "find deforestation data"
+            await reload_chat.on_message(incoming)
+
+        mcp_session.call_tool.assert_awaited_once_with("search_indicators", arguments={"query": "deforestation"})
+        assert len(captured_calls) == 2
+        tool_results = [
+            block
+            for message in captured_calls[1]["messages"]
+            if isinstance(message.get("content"), list)
+            for block in message["content"]
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        ]
+        assert any(
+            tr.get("content") == "OK_MCP_RESULT" and tr.get("tool_use_id") == "toolu_si_01" for tr in tool_results
+        )
+
+    async def test_mcp_tool_call_in_dossier_phase_routes_via_mcp_session(self, reload_chat):
+        """AC2: MCP tool call routes through mcp_session.call_tool in dossier phase."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="get_data",
+            input={"database_id": "WB_WDI", "indicator": "EN.ATM.CO2E.KT"},
+            id="toolu_gd_01",
+        )
+        text_block = _make_fake_content_block("text", "Data retrieved.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Data retrieved."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+        captured_calls = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_calls.append(kwargs)
+            return stream_with_tool if call_count == 1 else stream_final
+
+        fake_mcp_result = MagicMock()
+        fake_mcp_result.isError = False
+        fake_text_content = MagicMock()
+        fake_text_content.text = "OK_MCP_RESULT"
+        fake_mcp_result.content = [fake_text_content]
+
+        mcp_session = AsyncMock()
+        mcp_session.call_tool = AsyncMock(return_value=fake_mcp_result)
+
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "", "version": 0}
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(
+                    mcp_session=mcp_session, mcp_tools=tools, dossier={"phase": "dossier"}, doc=doc_mock
+                ),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            incoming = MagicMock()
+            incoming.content = "get CO2 data"
+            await reload_chat.on_message(incoming)
+
+        mcp_session.call_tool.assert_awaited_once_with(
+            "get_data", arguments={"database_id": "WB_WDI", "indicator": "EN.ATM.CO2E.KT"}
+        )
+        assert len(captured_calls) == 2
+        tool_results = [
+            block
+            for message in captured_calls[1]["messages"]
+            if isinstance(message.get("content"), list)
+            for block in message["content"]
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        ]
+        assert any(
+            tr.get("content") == "OK_MCP_RESULT" and tr.get("tool_use_id") == "toolu_gd_01" for tr in tool_results
+        )
+
+    async def test_mcp_tool_call_with_no_session_returns_error_string(self, reload_chat):
+        """AC3: when mcp_session is None, error string surfaces without crashing."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="search_indicators",
+            input={"query": "deforestation"},
+            id="toolu_si_02",
+        )
+        text_block = _make_fake_content_block("text", "Sorry, data unavailable.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(
+            tokens=["Sorry, data unavailable."], stop_reason="end_turn", content_blocks=[text_block]
+        )
+        call_count = 0
+        captured_calls = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_calls.append(kwargs)
+            return stream_with_tool if call_count == 1 else stream_final
+
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(mcp_session=None, mcp_tools=tools),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            incoming = MagicMock()
+            incoming.content = "find deforestation data"
+            await reload_chat.on_message(incoming)
+
+        assert len(captured_calls) == 2
+        tool_results = [
+            block
+            for message in captured_calls[1]["messages"]
+            if isinstance(message.get("content"), list)
+            for block in message["content"]
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        ]
+        assert any(
+            "Error: MCP server is not connected" in (tr.get("content") or "")
+            and "search_indicators" in (tr.get("content") or "")
+            for tr in tool_results
+        )
+
+
+# ---------------------------------------------------------------------------
 # on_toggle_dossier (header toggle button)
 # ---------------------------------------------------------------------------
 
