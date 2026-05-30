@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-24
-last_updated: 2026-05-30  # epic-10 -> done (closed formally; all stories done/cancelled, 10-5 superseded by 10-6, retro optional). Prior: epic-11 -> done
+last_updated: 2026-05-30  # 12-1 drafted (ready-for-dev), epic-12 -> in-progress (first 12-x). Prior: epic-10 -> done (closed formally)
 project: bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -151,8 +151,8 @@ development_status:
   epic-11-retrospective: optional
 
   # Epic 12: Data-Validated Investigation
-  epic-12: backlog
-  12-1-mcp-tools-in-dossier-session: backlog
+  epic-12: in-progress  # flipped 2026-05-30 (first 12-x story drafted: 12-1)
+  12-1-mcp-tools-in-dossier-session: ready-for-dev  # drafted 2026-05-30 via /bmad-create-story
   12-2-data-validation-gate: backlog
   12-3-citation-flow-into-dossier-sections: backlog
   12-4-no-data-handling-in-investigation: backlog
