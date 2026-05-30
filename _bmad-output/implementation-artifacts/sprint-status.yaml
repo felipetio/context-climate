@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-24
-last_updated: 2026-05-30  # Epic 5 recovered from deleted gallant-pascal-526e2f worktree: epic-4 -> cancelled, epic-5 -> in-progress (5-1/5-2/5-3 done, 5-4 in-progress with implementation files restored; metadata_indicators.json must be regenerated). Earlier: Epic 12 fully drafted (12.1-12.4 ready-for-dev), epic-12 -> in-progress; epic-10 -> done (closed formally)
+last_updated: 2026-05-30  # story 5-4 -> review (Tasks 1-5 complete; 54/54 Epic 5 tests pass; 193/193 mcp_server tests pass; ruff clean). Earlier: Epic 5 recovered from deleted gallant-pascal-526e2f worktree: epic-4 -> cancelled, epic-5 -> in-progress (5-1/5-2/5-3 done, 5-4 in-progress with implementation files restored; metadata_indicators.json regenerated, +dedupe). Earlier: Epic 12 fully drafted (12.1-12.4 ready-for-dev), epic-12 -> in-progress; epic-10 -> done (closed formally)
 project: bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -90,7 +90,7 @@ development_status:
   5-1-popular-indicators-data-file: done
   5-2-metadata-indicators-data-file: done
   5-3-list-popular-indicators-mcp-tool: done
-  5-4-search-local-indicators-mcp-tool: in-progress
+  5-4-search-local-indicators-mcp-tool: review
   5-5-offline-indicator-search-test-suite: backlog
   epic-5-retrospective: optional
 
