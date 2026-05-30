@@ -797,3 +797,33 @@ blockquote.pauta-sugerida,
 
 /* Lucide stroke */
 svg.lucide, [class*="lucide"] { stroke-width: 1.5; }
+
+/* =====================================================================
+   Dossier panel toggle button (header, injected by login-customize.js)
+   ===================================================================== */
+#cc-dossier-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+  flex-shrink: 0;
+}
+#cc-dossier-toggle:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--primary));
+}
+.dark #cc-dossier-toggle {
+  color: hsl(213 9% 70%);
+}
+.dark #cc-dossier-toggle:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--primary));
+}

@@ -2,6 +2,7 @@
 
 import contextlib
 import importlib
+import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1727,6 +1728,80 @@ class TestConversationResume:
         history = stored.get("history", [])
         assert history[0] == {"role": "user", "content": "Hi"}
 
+    async def test_on_chat_resume_restores_dossier_phase_when_propose_structure_seen(self, reload_chat):
+        """Resume restores dossier phase and auto-reveals the canvas when
+        propose_structure appears in thread steps."""
+        thread = {
+            "steps": [
+                {"type": "user_message", "output": "I want to investigate deforestation"},
+                {"type": "assistant_message", "output": "Your dossier is ready."},
+                {"name": "🔧 propose_structure", "type": "tool", "output": '{"status":"ok"}'},
+            ]
+        }
+        stored: dict = {}
+
+        with (
+            patch("app.chat.streamablehttp_client", _fake_streamablehttp_client),
+            patch("app.chat.ClientSession", return_value=AsyncMock()),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.reveal_dossier_canvas", new=AsyncMock()) as reveal_mock,
+        ):
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            await reload_chat.on_chat_resume(thread)
+
+        assert stored["dossier"]["phase"] == "dossier"
+        reveal_mock.assert_awaited_once()
+
+    async def test_on_chat_resume_investigating_phase_without_propose_structure(self, reload_chat):
+        """Resume keeps investigating phase and does not auto-reveal when propose_structure is absent."""
+        thread = {
+            "steps": [
+                {"type": "user_message", "output": "What topic?"},
+                {"type": "assistant_message", "output": "Tell me more."},
+            ]
+        }
+        stored: dict = {}
+
+        with (
+            patch("app.chat.streamablehttp_client", _fake_streamablehttp_client),
+            patch("app.chat.ClientSession", return_value=AsyncMock()),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.reveal_dossier_canvas", new=AsyncMock()) as reveal_mock,
+        ):
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            await reload_chat.on_chat_resume(thread)
+
+        assert stored["dossier"]["phase"] == "investigating"
+        reveal_mock.assert_not_called()
+
+    async def test_on_chat_resume_ignores_loose_propose_structure_mentions(self, reload_chat):
+        """P1 regression: a non-tool step or differently-named tool that merely
+        contains 'propose_structure' must NOT flip resume into dossier phase."""
+        thread = {
+            "steps": [
+                # Assistant prose mentioning the tool — not a tool step.
+                {"type": "assistant_message", "output": "I'll call propose_structure next."},
+                # A different (future) tool whose name only contains the substring.
+                {"name": "🔧 propose_structure_v2", "type": "tool", "output": "{}"},
+            ]
+        }
+        stored: dict = {}
+
+        with (
+            patch("app.chat.streamablehttp_client", _fake_streamablehttp_client),
+            patch("app.chat.ClientSession", return_value=AsyncMock()),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.reveal_dossier_canvas", new=AsyncMock()) as reveal_mock,
+        ):
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            await reload_chat.on_chat_resume(thread)
+
+        assert stored["dossier"]["phase"] == "investigating"
+        reveal_mock.assert_not_called()
+
 
 _INVESTIGATION_KEYS = (
     "topic_definition",
@@ -2255,3 +2330,968 @@ class TestUpdateInvestigationItemTool:
         assert "[ ] topic_definition" in captured_systems[0]
         # Round 2: recorded with the supplied value
         assert "[x] topic_definition: Climate" in captured_systems[1]
+
+
+class TestPhaseGateLogic:
+    """Story 11.3: phase-gate computation, phase flip, and reveal affordance."""
+
+    def _all_gate_items_done(self, reload_chat) -> dict:
+        state = reload_chat._empty_investigation_state()
+        for k in reload_chat._PHASE_GATE_ITEMS:
+            state[k] = {"done": True, "value": "set"}
+        return state
+
+    def test_gate_not_reached_with_partial_items(self, reload_chat):
+        """AC1a: 4 of 5 gate items done → phase_gate_reached is False."""
+        state = reload_chat._empty_investigation_state()
+        for k in ("topic_definition", "geography_scope", "time_range", "target_audience"):
+            state[k] = {"done": True, "value": "set"}
+        store = {"investigation": state, "dossier": {"phase": "investigating"}}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            # Mark a non-gate item; data_sources_validation still missing
+            result = reload_chat.update_investigation_item("key_stats_capture", "some stats")
+        assert result["phase_gate_reached"] is False
+        assert store["dossier"]["phase"] == "investigating"
+
+    def test_gate_reached_when_all_five_items_done(self, reload_chat, caplog):
+        """AC2: completing the 5th gate item flips phase_gate_reached True, phase to dossier, emits debug log."""
+        state = reload_chat._empty_investigation_state()
+        for k in ("topic_definition", "geography_scope", "time_range", "target_audience"):
+            state[k] = {"done": True, "value": "set"}
+        store = {"investigation": state, "dossier": {"phase": "investigating"}}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            with caplog.at_level("DEBUG", logger="app.chat"):
+                result = reload_chat.update_investigation_item("data_sources_validation", "confirmed")
+        assert result["phase_gate_reached"] is True
+        assert store["dossier"]["phase"] == "dossier"
+        assert any("phase_gate=reached, transitioning to dossier mode" in rec.message for rec in caplog.records)
+
+    def test_gate_idempotent_when_already_dossier(self, reload_chat, caplog):
+        """AC2 idempotent: re-calling a gate item already done keeps gate True, phase unchanged, log not re-emitted."""
+        store = {"investigation": self._all_gate_items_done(reload_chat), "dossier": {"phase": "dossier"}}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            with caplog.at_level("DEBUG", logger="app.chat"):
+                result = reload_chat.update_investigation_item("topic_definition", "re-confirmed")
+        assert result["phase_gate_reached"] is True
+        assert store["dossier"]["phase"] == "dossier"
+        assert not any("phase_gate=reached, transitioning to dossier mode" in rec.message for rec in caplog.records)
+
+    def test_gate_not_reached_with_non_gate_items_only(self, reload_chat):
+        """AC1a: non-gate items never trigger the gate."""
+        store = {"investigation": reload_chat._empty_investigation_state(), "dossier": {"phase": "investigating"}}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            result = reload_chat.update_investigation_item("methodology", "source analysis")
+        assert result["phase_gate_reached"] is False
+
+    def test_update_investigation_item_is_synchronous(self, reload_chat):
+        """AC5: update_investigation_item must remain a synchronous (non-coroutine) function."""
+        assert not inspect.iscoroutinefunction(reload_chat.update_investigation_item)
+
+    async def test_dispatch_posts_affordance_on_gate_transition(self, reload_chat):
+        """AC3: dispatch awaits post_dossier_reveal_affordance exactly once on investigating→dossier transition."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="update_investigation_item",
+            input={"item_id": "data_sources_validation", "value": "confirmed"},
+            id="toolu_gate_01",
+        )
+        text_block = _make_fake_content_block("text", "Dossier ready.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Dossier ready."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        gate_result = {"status": "ok", "item": "data_sources_validation", "items_done": 5, "phase_gate_reached": True}
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history()),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch("app.chat.update_investigation_item", return_value=gate_result),
+            patch("app.chat.post_dossier_reveal_affordance", new_callable=AsyncMock) as mock_reveal,
+        ):
+            incoming = MagicMock()
+            incoming.content = "all sources validated"
+            await reload_chat.on_message(incoming)
+
+        mock_reveal.assert_awaited_once()
+
+    async def test_dispatch_no_affordance_when_already_dossier(self, reload_chat):
+        """AC4: affordance not re-posted when phase was already dossier before the call."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="update_investigation_item",
+            input={"item_id": "key_stats_capture", "value": "stats"},
+            id="toolu_gate_02",
+        )
+        text_block = _make_fake_content_block("text", "OK.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["OK."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        gate_result = {"status": "ok", "item": "key_stats_capture", "items_done": 6, "phase_gate_reached": True}
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history(dossier={"phase": "dossier"})),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch("app.chat.update_investigation_item", return_value=gate_result),
+            patch("app.chat.post_dossier_reveal_affordance", new_callable=AsyncMock) as mock_reveal,
+        ):
+            incoming = MagicMock()
+            incoming.content = "more items"
+            await reload_chat.on_message(incoming)
+
+        mock_reveal.assert_not_awaited()
+
+    async def test_dispatch_no_affordance_when_gate_not_reached(self, reload_chat):
+        """AC1/AC3: no affordance posted when phase_gate_reached is False (gate not reached)."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="update_investigation_item",
+            input={"item_id": "topic_definition", "value": "Climate"},
+            id="toolu_gate_03",
+        )
+        text_block = _make_fake_content_block("text", "Noted.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Noted."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        no_gate_result = {"status": "ok", "item": "topic_definition", "items_done": 1, "phase_gate_reached": False}
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history()),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch("app.chat.update_investigation_item", return_value=no_gate_result),
+            patch("app.chat.post_dossier_reveal_affordance", new_callable=AsyncMock) as mock_reveal,
+        ):
+            incoming = MagicMock()
+            incoming.content = "set topic"
+            await reload_chat.on_message(incoming)
+
+        mock_reveal.assert_not_awaited()
+
+
+def _make_fake_ce_factory():
+    """Return (factory, created) where factory mimics cl.CustomElement(...).
+
+    The factory captures constructor kwargs into a MagicMock with a real `.props`
+    dict, a settable `.content`, and an awaitable `.update`. `created` accumulates
+    every element built so tests can assert how many were constructed.
+    """
+    created: list = []
+
+    def _factory(name=None, props=None, display=None, **_kwargs):
+        doc = MagicMock()
+        doc.props = dict(props) if props is not None else {}
+        doc.content = ""
+        doc.update = AsyncMock()
+        doc._ce_name = name
+        doc._ce_display = display
+        created.append(doc)
+        return doc
+
+    return _factory, created
+
+
+def _make_sidebar_mock():
+    """Return a MagicMock standing in for cl.ElementSidebar with async classmethods."""
+    sidebar = MagicMock()
+    sidebar.set_title = AsyncMock()
+    sidebar.set_elements = AsyncMock()
+    return sidebar
+
+
+@contextlib.asynccontextmanager
+async def _failing_mcp_client(url, **kwargs):
+    """streamablehttp_client stand-in that fails so on_chat_start/resume skip MCP."""
+    raise ConnectionError("no MCP")
+    yield  # pragma: no cover
+
+
+class TestOnDemandDossierReveal:
+    """Story 10.6: lazy doc creation + on-demand canvas reveal."""
+
+    async def test_ensure_dossier_doc_creates_doc_when_absent(self, reload_chat):
+        """AC2: creates a Document element with dossier-phase props when none exists."""
+        stored: dict = {}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            doc = reload_chat.ensure_dossier_doc()
+
+        assert doc is stored["doc"]
+        assert doc.props == {"content": "", "version": 0, "phase": "dossier"}
+        assert len(created) == 1
+        # AC2: creation must NOT open the sidebar.
+        sidebar.set_title.assert_not_called()
+        sidebar.set_elements.assert_not_called()
+
+    async def test_ensure_dossier_doc_is_idempotent(self, reload_chat):
+        """AC2: a second call returns the same element — no second CustomElement built."""
+        stored: dict = {}
+        factory, created = _make_fake_ce_factory()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            doc1 = reload_chat.ensure_dossier_doc()
+            doc2 = reload_chat.ensure_dossier_doc()
+
+        assert doc1 is doc2
+        assert len(created) == 1
+
+    async def test_reveal_dossier_canvas_opens_sidebar(self, reload_chat):
+        """AC3: reveal opens the ElementSidebar titled 'Dossier' with the doc."""
+        stored: dict = {}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.reveal_dossier_canvas()
+
+        sidebar.set_title.assert_awaited_once_with("Dossier")
+        sidebar.set_elements.assert_awaited_once()
+        args, kwargs = sidebar.set_elements.call_args
+        assert args[0] == [stored["doc"]]
+        # Key includes content version + monotonic open counter (ensures close→reopen works).
+        assert kwargs.get("key") == "dossier-v0-o1"
+        # Reveal marks the canvas revealed so subsequent updates refresh it.
+        assert stored.get("dossier_revealed") is True
+
+    async def test_reveal_dossier_canvas_reuses_existing_doc(self, reload_chat):
+        """AC3: reveal never constructs a new element when one already exists."""
+        existing = MagicMock()
+        existing.props = {"content": "# Hi", "version": 3, "phase": "dossier"}
+        stored: dict = {"doc": existing}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.reveal_dossier_canvas()
+            await reload_chat.reveal_dossier_canvas()
+
+        assert len(created) == 0  # no new CustomElement built
+        args, _ = sidebar.set_elements.call_args
+        assert args[0] == [existing]
+
+    async def test_post_dossier_reveal_affordance_sends_single_action(self, reload_chat):
+        """AC4: posts exactly one message carrying a single 'reveal_dossier' action."""
+        msg_mock = AsyncMock()
+        msg_mock.send = AsyncMock()
+        action_obj = MagicMock()
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock) as msg_cls,
+            patch("app.chat.cl.Action", return_value=action_obj) as action_cls,
+        ):
+            await reload_chat.post_dossier_reveal_affordance()
+
+        action_cls.assert_called_once_with(name="reveal_dossier", label="📄 Open dossier", payload={})
+        _, kwargs = msg_cls.call_args
+        assert kwargs.get("actions") == [action_obj]
+        msg_mock.send.assert_awaited_once()
+
+    async def test_reveal_dossier_action_callback_triggers_reveal(self, reload_chat):
+        """AC4: clicking the affordance invokes reveal_dossier_canvas()."""
+        action = MagicMock()
+        action.remove = AsyncMock()
+        with patch("app.chat.reveal_dossier_canvas", new=AsyncMock()) as reveal_mock:
+            await reload_chat.on_reveal_dossier(action)
+
+        reveal_mock.assert_awaited_once()
+        action.remove.assert_awaited_once()
+
+    async def test_on_chat_start_does_not_create_doc_or_open_sidebar(self, reload_chat):
+        """AC1 regression: chat start initializes state only — no doc, no sidebar."""
+        stored: dict = {}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.streamablehttp_client", _failing_mcp_client),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.Message") as msg_cls,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            msg_cls.return_value.send = AsyncMock()
+            await reload_chat.on_chat_start()
+
+        assert stored.get("doc") is None
+        assert len(created) == 0
+        sidebar.set_title.assert_not_called()
+        sidebar.set_elements.assert_not_called()
+
+    async def test_on_chat_start_welcome_message_has_no_reveal_action(self, reload_chat):
+        """AC4: the welcome message carries no persistent reveal/show action."""
+        stored: dict = {}
+        captured: dict = {}
+
+        def fake_message(*args, **kwargs):
+            captured.update(kwargs)
+            m = AsyncMock()
+            m.send = AsyncMock()
+            return m
+
+        with (
+            patch("app.chat.streamablehttp_client", _failing_mcp_client),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.Message", side_effect=fake_message),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.on_chat_start()
+
+        assert not captured.get("actions")
+
+    async def test_on_chat_resume_does_not_create_doc_or_open_sidebar(self, reload_chat):
+        """AC1 regression: resume re-seeds state only — no doc, no sidebar."""
+        stored: dict = {}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.streamablehttp_client", _failing_mcp_client),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.on_chat_resume({"steps": []})
+
+        assert stored.get("doc") is None
+        assert len(created) == 0
+        sidebar.set_title.assert_not_called()
+        sidebar.set_elements.assert_not_called()
+
+    async def test_apply_ops_succeeds_after_ensure_dossier_doc(self, reload_chat):
+        """AC5: once a doc exists, apply_ops operates on it (no 'canvas not open')."""
+        stored: dict = {"dossier": {"phase": "dossier", "content": "", "version": 0}}
+        factory, created = _make_fake_ce_factory()
+        sent_msg = AsyncMock()
+        sent_msg.send = AsyncMock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.Message", return_value=sent_msg),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            reload_chat.ensure_dossier_doc()
+            result = await reload_chat._handle_apply_ops(
+                {"ops": [{"type": "append", "content": "# Hello"}], "summary": "added heading"}
+            )
+
+        assert result == "ok"
+        assert stored["doc"].props["content"] == "# Hello"
+
+    async def test_handle_apply_ops_without_doc_still_reports_not_open(self, reload_chat):
+        """AC5 guard preserved: with no doc, apply_ops still returns the not-open error."""
+        stored: dict = {}
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            result = await reload_chat._handle_apply_ops({"ops": [{"type": "append", "content": "x"}], "summary": "s"})
+
+        assert result == "Error: dossier canvas is not open"
+
+    async def test_update_dossier_content_refreshes_sidebar_when_revealed(self, reload_chat):
+        """AC6: after reveal, update_dossier_content re-renders the sidebar with a new key.
+
+        doc.update() alone does not refresh a sidebar-hosted element, and re-running
+        set_elements with the SAME key is a no-op — so the refresh must use a
+        version-stamped key.
+        """
+        doc = MagicMock()
+        doc.props = {"content": "", "version": 0, "phase": "dossier"}
+        doc.update = AsyncMock()
+        stored: dict = {"doc": doc, "dossier_revealed": True}
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.update_dossier_content("# New content")
+
+        assert doc.props["content"] == "# New content"
+        assert doc.props["version"] == 1
+        sidebar.set_elements.assert_awaited_once()
+        args, kwargs = sidebar.set_elements.call_args
+        assert args[0] == [doc]
+        assert kwargs.get("key") == "dossier-v1-o0"  # version-stamped + open-counter → not a no-op
+
+    async def test_update_dossier_content_no_sidebar_refresh_when_not_revealed(self, reload_chat):
+        """AC4: content updates before reveal must NOT force the panel open."""
+        doc = MagicMock()
+        doc.props = {"content": "", "version": 0, "phase": "dossier"}
+        doc.update = AsyncMock()
+        stored: dict = {"doc": doc}  # dossier_revealed not set
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.update_dossier_content("# Silent update")
+
+        # Doc props still updated (so content shows once revealed), but no sidebar open.
+        assert doc.props["content"] == "# Silent update"
+        sidebar.set_elements.assert_not_called()
+        sidebar.set_title.assert_not_called()
+
+    async def test_refresh_dossier_canvas_is_noop_when_not_revealed(self, reload_chat):
+        """_refresh_dossier_canvas does nothing until the canvas has been revealed."""
+        doc = MagicMock()
+        doc.props = {"content": "x", "version": 2, "phase": "dossier"}
+        stored: dict = {"doc": doc}
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat._refresh_dossier_canvas()
+
+        sidebar.set_elements.assert_not_called()
+
+    async def test_apply_ops_streams_into_sidebar_per_op_when_revealed(self, reload_chat):
+        """AC6: with the canvas revealed, each op refreshes the sidebar (streaming)."""
+        doc = MagicMock()
+        doc.props = {"content": "", "version": 0, "phase": "dossier"}
+        doc.update = AsyncMock()
+        stored: dict = {
+            "doc": doc,
+            "dossier_revealed": True,
+            "dossier": {"phase": "dossier", "content": "", "version": 0},
+        }
+        sent_msg = AsyncMock()
+        sent_msg.send = AsyncMock()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.ElementSidebar", sidebar),
+            patch("app.chat.cl.Message", return_value=sent_msg),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            result = await reload_chat._handle_apply_ops(
+                {
+                    "ops": [
+                        {"type": "append", "content": "## Part 1"},
+                        {"type": "append", "content": "Body text."},
+                    ],
+                    "summary": "two appends",
+                }
+            )
+
+        assert result == "ok"
+        # One sidebar refresh per op (2 ops → 2 refreshes), each with a fresh key.
+        assert sidebar.set_elements.await_count == 2
+        keys = [c.kwargs.get("key") for c in sidebar.set_elements.await_args_list]
+        assert keys == ["dossier-v1-o0", "dossier-v2-o0"]
+
+
+class TestProposeStructureTool:
+    """Story 11.4: propose_structure tool — skeleton generation and dossier wiring."""
+
+    # ------------------------------------------------------------------
+    # Pure-helper tests (no Chainlit mocks required)
+    # ------------------------------------------------------------------
+
+    def test_skeleton_contains_required_sections(self, reload_chat):
+        """AC3: all five required headings appear in order in the skeleton markdown."""
+        skeleton, sections = reload_chat._build_dossier_skeleton(None)
+        assert "# Executive Summary" in skeleton
+        assert "## Part 1:" in skeleton
+        assert "## Case Studies" in skeleton
+        assert "## Suggested Stories (Pautas Sugeridas)" in skeleton
+        assert "## Methodology and Sources" in skeleton
+        # Check order
+        idx_exec = skeleton.index("# Executive Summary")
+        idx_part1 = skeleton.index("## Part 1:")
+        idx_cases = skeleton.index("## Case Studies")
+        idx_stories = skeleton.index("## Suggested Stories")
+        idx_method = skeleton.index("## Methodology and Sources")
+        assert idx_exec < idx_part1 < idx_cases < idx_stories < idx_method
+        assert len(sections) == 5
+
+    def test_skeleton_uses_topic_from_state(self, reload_chat):
+        """AC3: topic_definition value is used as Part 1 heading when no topic_area given."""
+        state = {"topic_definition": {"done": True, "value": "Dengue in SE Brazil"}}
+        skeleton, sections = reload_chat._build_dossier_skeleton(state)
+        assert "## Part 1: Dengue in SE Brazil" in skeleton
+        assert "Part 1: Dengue in SE Brazil" in sections
+
+    def test_skeleton_topic_area_override(self, reload_chat):
+        """AC3: explicit topic_area wins over state value."""
+        state = {"topic_definition": {"done": True, "value": "Something long and different"}}
+        skeleton, sections = reload_chat._build_dossier_skeleton(state, topic_area="Short Label")
+        assert "## Part 1: Short Label" in skeleton
+        assert "Part 1: Short Label" in sections
+        assert "Something long" not in skeleton
+
+    def test_skeleton_truncates_long_topic(self, reload_chat):
+        """AC3: topic longer than 60 chars is truncated to <=60 chars ending with '...'."""
+        long_topic = "A" * 70
+        skeleton, sections = reload_chat._build_dossier_skeleton(None, topic_area=long_topic)
+        part1_heading = [s for s in sections if s.startswith("Part 1:")][0]
+        label = part1_heading[len("Part 1: ") :]
+        assert len(label) <= 60
+        assert label.endswith("...")
+
+    def test_skeleton_fallback_when_topic_missing(self, reload_chat):
+        """AC3: empty state and no topic_area falls back to 'Investigation Overview'."""
+        skeleton, sections = reload_chat._build_dossier_skeleton({})
+        assert "## Part 1: Investigation Overview" in skeleton
+        assert "Part 1: Investigation Overview" in sections
+
+    def test_derive_topic_label_strips_markdown_control_chars(self, reload_chat):
+        """P4: Markdown control chars are stripped so the topic can't distort/escape
+        the heading it's injected into; whitespace runs collapse."""
+        label = reload_chat._derive_topic_label(None, topic_area="Foo `bar`  ## *baz* [x]\n# hack")
+        assert "#" not in label
+        assert "`" not in label
+        assert "*" not in label
+        assert "[" not in label and "]" not in label
+        assert "\n" not in label
+        # Whitespace collapsed to single spaces.
+        assert "  " not in label
+        assert label == "Foo bar baz x hack"
+
+    def test_derive_topic_label_truncation_boundary(self, reload_chat):
+        """P6: 60-char topic is kept verbatim; 61-char topic is truncated to <=60 with '...'."""
+        exactly_60 = "A" * 60
+        assert reload_chat._derive_topic_label(None, topic_area=exactly_60) == exactly_60
+        over_60 = "B" * 61
+        truncated = reload_chat._derive_topic_label(None, topic_area=over_60)
+        assert len(truncated) <= 60
+        assert truncated.endswith("...")
+
+    # ------------------------------------------------------------------
+    # Handler tests
+    # ------------------------------------------------------------------
+
+    async def test_handle_propose_structure_creates_and_populates_doc(self, reload_chat):
+        """AC2: creates doc, writes skeleton, returns status:ok with 5 sections."""
+        stored: dict = {}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            result_json = await reload_chat._handle_propose_structure({"topic_area": "Climate Risk"})
+
+        import json as _json
+
+        result = _json.loads(result_json)
+        assert result["status"] == "ok"
+        assert len(result["sections"]) == 5
+        assert len(created) == 1
+        doc = stored["doc"]
+        assert doc.props["phase"] == "dossier"
+        assert "# Executive Summary" in doc.props["content"]
+        assert "## Part 1: Climate Risk" in doc.props["content"]
+        doc.update.assert_awaited()
+
+    async def test_handle_propose_structure_does_not_open_sidebar(self, reload_chat):
+        """AC4: handler does not call ElementSidebar (canvas not revealed)."""
+        stored: dict = {}
+        factory, _ = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat._handle_propose_structure({})
+
+        sidebar.set_title.assert_not_called()
+        sidebar.set_elements.assert_not_called()
+
+    async def test_handle_propose_structure_noop_when_content_exists(self, reload_chat):
+        """AC5: returns status:noop without overwriting existing content."""
+        import json as _json
+
+        existing = MagicMock()
+        existing.props = {"content": "# Existing", "version": 2, "phase": "dossier"}
+        existing.update = AsyncMock()
+        stored: dict = {"doc": existing}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            result_json = await reload_chat._handle_propose_structure({})
+
+        result = _json.loads(result_json)
+        assert result["status"] == "noop"
+        assert "reason" in result
+        assert existing.props["content"] == "# Existing"
+        existing.update.assert_not_awaited()
+        assert len(created) == 0
+
+    async def test_handle_propose_structure_whitespace_topic_area_falls_back_to_state(self, reload_chat):
+        """P6: a whitespace-only topic_area collapses to None, so the skeleton falls
+        back to the investigation topic_definition value."""
+        stored: dict = {"investigation": {"topic_definition": {"done": True, "value": "Floods in Bangladesh"}}}
+        factory, created = _make_fake_ce_factory()
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.CustomElement", side_effect=factory),
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat._handle_propose_structure({"topic_area": "   "})
+
+        doc = stored["doc"]
+        assert "## Part 1: Floods in Bangladesh" in doc.props["content"]
+
+    # ------------------------------------------------------------------
+    # Dispatch test
+    # ------------------------------------------------------------------
+
+    async def test_dispatch_calls_propose_structure_handler(self, reload_chat):
+        """AC6: dispatch awaits _handle_propose_structure when tool_use name is propose_structure."""
+        import json as _json
+
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="propose_structure",
+            input={"topic_area": "Climate Risk"},
+            id="toolu_ps_01",
+        )
+        text_block = _make_fake_content_block("text", "Skeleton created.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Skeleton created."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+        captured_calls = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_calls.append(kwargs)
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "", "version": 0, "phase": "dossier"}
+
+        handler_return = _json.dumps({"status": "ok", "sections": ["Executive Summary"]})
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(dossier={"phase": "dossier"}, doc=doc_mock),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch(
+                "app.chat._handle_propose_structure", new_callable=AsyncMock, return_value=handler_return
+            ) as mock_handler,
+        ):
+            incoming = MagicMock()
+            incoming.content = "create dossier"
+            await reload_chat.on_message(incoming)
+
+        mock_handler.assert_awaited_once()
+        # AC6: the handler's return value is wired back to the model as a tool_result
+        # on the follow-up stream call (not just awaited and discarded).
+        assert len(captured_calls) == 2
+        tool_results = [
+            block
+            for message in captured_calls[1]["messages"]
+            if isinstance(message.get("content"), list)
+            for block in message["content"]
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        ]
+        assert any(tr.get("content") == handler_return for tr in tool_results)
+
+    async def test_dispatch_propose_structure_handler_error_is_caught(self, reload_chat):
+        """P6: when _handle_propose_structure raises, the dispatch except branch
+        feeds an 'Error calling propose_structure' tool_result back to the model."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="propose_structure",
+            input={},
+            id="toolu_ps_err",
+        )
+        text_block = _make_fake_content_block("text", "Recovered.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Recovered."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+        captured_calls = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_calls.append(kwargs)
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "", "version": 0, "phase": "dossier"}
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(dossier={"phase": "dossier"}, doc=doc_mock),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch(
+                "app.chat._handle_propose_structure",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            incoming = MagicMock()
+            incoming.content = "create dossier"
+            await reload_chat.on_message(incoming)
+
+        tool_results = [
+            block
+            for message in captured_calls[1]["messages"]
+            if isinstance(message.get("content"), list)
+            for block in message["content"]
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        ]
+        assert any("Error calling propose_structure" in (tr.get("content") or "") for tr in tool_results)
+
+    # ------------------------------------------------------------------
+    # Registration tests
+    # ------------------------------------------------------------------
+
+    async def test_propose_structure_registered_in_dossier_phase(self, reload_chat):
+        """AC1: propose_structure is in the tool list when phase is dossier."""
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "", "version": 0}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(dossier={"phase": "dossier"}, doc=doc_mock),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hello"
+            await reload_chat.on_message(incoming)
+
+        passed_names = [t["name"] for t in (captured_call_kwargs.get("tools") or [])]
+        assert "propose_structure" in passed_names
+
+    async def test_propose_structure_not_registered_in_investigating_phase(self, reload_chat):
+        """AC1: propose_structure is NOT in the tool list during investigating phase."""
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history()),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hello"
+            await reload_chat.on_message(incoming)
+
+        passed_names = [t["name"] for t in (captured_call_kwargs.get("tools") or [])]
+        assert "propose_structure" not in passed_names
+
+
+# ---------------------------------------------------------------------------
+# on_toggle_dossier (header toggle button)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("set_required_env_vars")
+class TestToggleDossier:
+    """Tests for @cl.action_callback('toggle_dossier')."""
+
+    @pytest.fixture
+    def reload_chat(self):
+        import importlib
+
+        import app.chat as chat_module
+
+        importlib.reload(chat_module)
+        return chat_module
+
+    async def test_toggle_closes_panel_when_revealed(self, reload_chat):
+        """When dossier_revealed=True, toggle closes the sidebar and marks it closed."""
+        stored: dict = {"dossier_revealed": True}
+        sidebar = _make_sidebar_mock()
+        action = MagicMock()
+
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            await reload_chat.on_toggle_dossier(action)
+
+        # Close key carries the open-counter (0 when never opened in this session).
+        sidebar.set_elements.assert_awaited_once_with([], key="closed-o0")
+        assert stored.get("dossier_revealed") is False
+
+    async def test_toggle_close_keys_distinct_across_open_close_cycles(self, reload_chat):
+        """P2 regression: consecutive closes must use distinct keys so ElementSidebar
+        (which ignores an unchanged key) does not no-op the second close."""
+        stored: dict = {"dossier_revealed": True, "_sidebar_open_count": 1}
+        sidebar = _make_sidebar_mock()
+        action = MagicMock()
+
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            # First close at open_count=1, then simulate a reopen bumping the counter,
+            # then a second close — the two close keys must differ.
+            await reload_chat.on_toggle_dossier(action)
+            stored["dossier_revealed"] = True
+            stored["_sidebar_open_count"] = 2
+            await reload_chat.on_toggle_dossier(action)
+
+        close_keys = [c.kwargs["key"] for c in sidebar.set_elements.await_args_list]
+        assert close_keys == ["closed-o1", "closed-o2"]
+        assert len(set(close_keys)) == 2
+
+    async def test_toggle_opens_panel_when_not_revealed(self, reload_chat):
+        """When dossier_revealed=False, toggle calls reveal_dossier_canvas()."""
+        stored: dict = {"dossier_revealed": False}
+        action = MagicMock()
+
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.reveal_dossier_canvas", new=AsyncMock()) as reveal_mock,
+        ):
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            await reload_chat.on_toggle_dossier(action)
+
+        reveal_mock.assert_awaited_once()
+        # set_elements NOT called directly (reveal_dossier_canvas handles it)
+
+    async def test_toggle_opens_panel_when_state_absent(self, reload_chat):
+        """When dossier_revealed is not set (None/falsy), toggle opens the panel."""
+        stored: dict = {}
+        action = MagicMock()
+
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.reveal_dossier_canvas", new=AsyncMock()) as reveal_mock,
+        ):
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            await reload_chat.on_toggle_dossier(action)
+
+        reveal_mock.assert_awaited_once()

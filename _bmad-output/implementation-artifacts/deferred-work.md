@@ -1,8 +1,22 @@
 # Deferred Work
 
+## Deferred from: code review of 11-4-propose-structure-tool (2026-05-25)
+
+- **[11-4] `on_chat_resume` iterates `thread.get("steps", [])` unguarded** (`app/chat.py:674,696`) — returns `None` if the `steps` key is present-but-null, and a non-dict step element would crash `step.get(...)`. Pre-existing: the loop at line 675 already iterates the same `steps`, so this is not introduced by Story 11.4. Fix when touched: `steps = thread.get("steps") or []` and filter `isinstance(step, dict)`.
+
+## Deferred from: code review of 11-3-phase-gate-logic (2026-05-25)
+
+- **[11-3] `on_chat_resume` resets `dossier["phase"]` to `"investigating"` unconditionally** (`app/chat.py:583`) — gate can never re-trigger after browser reload; user who reached phase gate before closing tab resumes as if in investigation phase with empty checklist. Pre-existing from Stories 11.1/11.2.
+- **[11-3] `update_investigation_item` error dict omits `phase_gate_reached` key** (`app/chat.py:108`) — when LLM sends unknown `item_id`, returned `{"error": "..."}` has no `phase_gate_reached`; dispatch reads `None` (falsy) which is safe but LLM receives ambiguous feedback. Pre-existing from Story 11.2.
+- **[11-3] `test_dispatch_no_affordance_when_already_dossier` does not assert serialized `tool_output` contains `"phase_gate_reached": true`** (`tests/app/test_chat.py`) — AC4 specifies this return value; implicitly verified through mock setup but not explicitly asserted. Low value given the clear code path.
+
+## Deferred from: code review of 11-1-investigation-session-state (2026-05-23)
+
+- **[11-1] `phase_gate_reached` hardcoded `False` in `update_investigation_item`** (`app/chat.py`) — by-design stub from Story 11.1; returns `False` even when all 10 items are done. Now user-reachable because the Story 11.2 tool wrapper is live in HEAD, so the model receives a misleading `phase_gate_reached: False` on every call. **Owned by Story 11.3** (rewritten 2026-05-23 to compute the real gate on items 1-5 and return `True`). No action needed in 11.1.
+
 ## Deferred from: code review of 11-2-update-investigation-item-tool (2026-05-13)
 
-- **[11-2] `update_investigation_item` helper mutates session dict in-place without `cl.user_session.set` on normal path** (`app/chat.py:137`) — pre-existing Story 11.1 design; if Chainlit ever returns a copy instead of a reference from `.get()`, the mutation is silently lost. Fix: add `cl.user_session.set("investigation", state)` after line 137 unconditionally.
+- **[11-2] `update_investigation_item` helper mutates session dict in-place without `cl.user_session.set` on normal path** (`app/chat.py:137`) — pre-existing Story 11.1 design; if Chainlit ever returns a copy instead of a reference from `.get()`, the mutation is silently lost. Fix: add `cl.user_session.set("investigation", state)` after line 137 unconditionally. — ✅ **RESOLVED 2026-05-23** via the Story 11.1 code review (P1): unconditional write-back added.
 
 - **[11-2] Pre-dispatch `json.dumps(tool_input, indent=2)` not in try/except** (`app/chat.py:805`) — pre-existing agentic loop vulnerability; if any MCP tool deserializes a non-serialisable Python object into `tool_input`, this raises before the per-tool dispatch block. Shared exposure with `apply_ops` and MCP path. Fix: wrap in try/except or validate tool_input before logging.
 

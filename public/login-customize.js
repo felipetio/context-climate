@@ -186,3 +186,83 @@
     start();
   }
 })();
+
+/* =====================================================================
+   Dossier panel toggle button
+   ---------------------------------------------------------------------
+   Injected into the header when Document.jsx fires "cc:dossier-active".
+   Calls window.__cc_toggle_dossier() (set by Document.jsx) to route
+   through Chainlit's callAction → @cl.action_callback("toggle_dossier").
+   The button persists once injected; React's virtual DOM diffing does
+   not remove injected nodes outside its own tree.
+   ===================================================================== */
+(function () {
+  "use strict";
+
+  var DOSSIER_BTN_ID = "cc-dossier-toggle";
+
+  // PanelRight (sidebar-right) from Lucide — signals a right-side panel.
+  var PANEL_RIGHT_SVG =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"' +
+    ' fill="none" stroke="currentColor" stroke-width="1.5"' +
+    ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<rect width="18" height="18" x="3" y="3" rx="2"/>' +
+    '<path d="M15 3v18"/>' +
+    "</svg>";
+
+  function buildToggleBtn() {
+    var btn = document.createElement("button");
+    btn.id = DOSSIER_BTN_ID;
+    btn.className = "cc-dossier-toggle";
+    btn.setAttribute("aria-label", "Toggle dossier panel");
+    btn.setAttribute("title", "Toggle dossier");
+    btn.innerHTML = PANEL_RIGHT_SVG;
+    btn.addEventListener("click", function () {
+      if (typeof window.__cc_toggle_dossier === "function") {
+        window.__cc_toggle_dossier();
+      }
+    });
+    return btn;
+  }
+
+  function injectDossierToggle() {
+    if (document.getElementById(DOSSIER_BTN_ID)) return;
+    var header = document.querySelector("header") || document.getElementById("header");
+    if (!header) return;
+    // Chainlit's header buttons have IDs: theme-toggle, user-nav-button.
+    // Insert just before the user avatar so the dossier toggle sits at the
+    // far-right edge — symmetric to the ☰ sidebar toggle on the far left.
+    var anchor =
+      header.querySelector("#user-nav-button") ||
+      header.querySelector("#theme-toggle") ||
+      header.querySelector('button[aria-label*="theme" i]') ||
+      header.querySelector('button[aria-label*="dark" i]') ||
+      header.querySelector('button[aria-label*="light" i]');
+    if (anchor && anchor.parentElement) {
+      anchor.parentElement.insertBefore(buildToggleBtn(), anchor);
+    } else {
+      // Fallback: append to the last direct-child div of the header.
+      var divs = header.querySelectorAll(":scope > div");
+      var target = divs.length ? divs[divs.length - 1] : header;
+      target.appendChild(buildToggleBtn());
+    }
+  }
+
+  // React can re-render the header subtree and drop our injected button. Watch
+  // for that and re-inject (injectDossierToggle is idempotent). The observer is
+  // armed only after the first dossier-active signal so it never runs on the
+  // login screen or before dossier mode.
+  var dossierObserver = null;
+  function armDossierObserver() {
+    if (dossierObserver) return;
+    dossierObserver = new MutationObserver(function () {
+      if (!document.getElementById(DOSSIER_BTN_ID)) injectDossierToggle();
+    });
+    dossierObserver.observe(document.body, { subtree: true, childList: true });
+  }
+
+  document.addEventListener("cc:dossier-active", function () {
+    injectDossierToggle();
+    armDossierObserver();
+  });
+})();

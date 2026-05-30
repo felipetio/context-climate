@@ -157,7 +157,7 @@ All tools MUST return one of exactly two shapes:
 | 4 | RAG / Document Upload | Done |
 | 5–8 | (earlier epics) | Done |
 | 9 | Server-Side Data Sources Block | Done |
-| 10 | Dossier Mode — Document JSX element, canvas integration, apply_ops engine, LLM system prompt | In Progress |
+| 10 | Dossier Mode — Document JSX element, on-demand canvas reveal, apply_ops engine, LLM system prompt | In Progress |
 | 11 | Dossier Mode — Full interview flow, checklist, split-panel UI | Planned |
 | 12 | Dossier Mode — Case studies, Pauta Sugerida, Methodology | Planned |
 | 13 | Dossier Export & Sharing | Planned |
