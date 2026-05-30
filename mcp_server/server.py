@@ -287,6 +287,70 @@ async def list_popular_indicators() -> dict[str, Any]:
         return {"success": False, "error": str(exc), "error_type": "api_error"}
 
 
+@mcp.tool()
+async def search_local_indicators(
+    query: str,
+    limit: int = config.DATA360_LOCAL_SEARCH_LIMIT,
+) -> dict[str, Any]:
+    """Search indicator metadata offline using local cached data.
+
+    Performs instant substring matching against ~1500 indicator codes,
+    names, and descriptions. Results are ranked by relevance score.
+    Use this for fast discovery before calling search_indicators for
+    full API results.
+
+    Note: Results include indicator codes but NOT database IDs.
+    Call search_indicators to get the database_id needed for get_data.
+
+    Args:
+        query: Search term (case-insensitive). Matches against code, name, description.
+        limit: Maximum results to return (1-100, default 20).
+
+    Returns:
+        dict with success, query, total_matches, data (list with indicator,
+        name, description, source, relevance_score), note.
+    """
+    try:
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = config.DATA360_LOCAL_SEARCH_LIMIT
+        limit = max(1, min(limit, 100))
+
+        if not query or not query.strip():
+            logger.info("search_local_indicators: empty query")
+            return {
+                "success": True,
+                "query": query,
+                "total_matches": 0,
+                "data": [],
+                "note": "No local matches found. Try search_indicators for API-based search.",
+            }
+
+        results = indicator_cache.search_local_metadata(query, limit=limit)
+
+        if not results:
+            logger.info("search_local_indicators: no matches for query=%r", query)
+            return {
+                "success": True,
+                "query": query,
+                "total_matches": 0,
+                "data": [],
+                "note": "No local matches found. Try search_indicators for API-based search.",
+            }
+
+        return {
+            "success": True,
+            "query": query,
+            "total_matches": len(results),
+            "data": results,
+            "note": "Local search - instant results from cached metadata",
+        }
+    except Exception as exc:
+        logger.error("search_local_indicators failed: %s", exc)
+        return {"success": False, "error": str(exc), "error_type": "api_error"}
+
+
 if config.RAG_ENABLED:
     from mcp_server.rag.citation import build_citation_source
     from mcp_server.rag.embeddings import generate_query_embedding

@@ -36,6 +36,10 @@ RETRY_BACKOFF_BASE = _float_env("DATA360_RETRY_BACKOFF_BASE", 1.0, min_val=0.0)
 PAGE_SIZE = 1000
 MAX_RECORDS = 5000
 
+# Default `limit` for the offline search_local_indicators tool. Env-overridable.
+# Defensive [1, 100] clamp is applied inside the tool, so this is just the default.
+DATA360_LOCAL_SEARCH_LIMIT: int = _int_env("DATA360_LOCAL_SEARCH_LIMIT", 20, min_val=1)
+
 # Transport settings
 MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "stdio")
 _mcp_port_raw = os.getenv("MCP_PORT")
