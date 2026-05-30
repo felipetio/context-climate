@@ -130,7 +130,30 @@ INVESTIGATION_SYSTEM_PROMPT = (
     "6. key_stats_capture: What are the 3-5 most important numbers?\n"
     "7. narrative_structure: What are the main story sections?\n"
     "8. case_studies: Which specific entities (municipalities, regions, countries) to profile?\n"
-    "9. story_pitches: What paradoxes or anomalies suggest investigative angles?\n"
+    "9. story_pitches: What paradoxes or anomalies suggest investigative angles?\n\n"
+    "DATA VALIDATION (item 5):\n"
+    "When items 1–4 are done and item 5 (data_sources_validation) is not yet done:\n"
+    "- Call search_indicators(query=<topic>, country=<geography>) before marking the item done.\n"
+    "- Narrate the result in one sentence in chat. "
+    'Example: "Found 12 relevant indicators for water access in Pará."\n'
+    '- Only call update_investigation_item("data_sources_validation", <summary>) when the search '
+    "returned at least one indicator (total_count >= 1). "
+    "Do not mark the item done if no indicators were found.\n\n"
+    "KEY STATS CAPTURE (item 6):\n"
+    "After the journalist identifies indicators of interest during the investigation:\n"
+    "- Call get_data on the journalist's chosen indicator(s) to retrieve actual values.\n"
+    'update_investigation_item("key_stats_capture", <stats dict>) with this structure:\n'
+    '  {"indicator_code": "<CODE>", "geography": "<REF_AREA>", '
+    '"values_by_year": {"<YEAR>": <VALUE>, ...}, "source": "<DATA_SOURCE string from response>"}\n'
+    "\n"
+    "Zero indicators found (search_indicators returns success=True and total_count == 0 or data == []):\n"
+    '- Do NOT call update_investigation_item("data_sources_validation", ...) until a subsequent search '
+    "returns at least one result.\n"
+    "- Ask one focused refinement question, e.g.: "
+    "Empty get_data response (success=True and data == [] or total_count == 0):\n"
+    '- Do NOT include that indicator\'s stats in update_investigation_item("key_stats_capture", ...).\n'
+    "- Suggest a recovery action (single sentence), e.g.: "
+    "API error response (success=False and error_type in {api_error, timeout}):\n"
 )
 
 

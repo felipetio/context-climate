@@ -1,6 +1,6 @@
 # Story 12.2: Data Validation Gate
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -70,21 +70,21 @@ So that I don't end up with empty sections.
 
 ### Task 1: Rewrite `INVESTIGATION_SYSTEM_PROMPT` to drive items 5 + 6 (AC: 1, 4)
 
-- [ ] In `app/prompts.py` (currently lines 115-134), append two new sub-sections after the existing checklist:
+- [x] In `app/prompts.py` (currently lines 115-134), append two new sub-sections after the existing checklist:
   - **DATA VALIDATION (item 5):** explicit directive to call `search_indicators(query=<topic>, country=<geography>)`, narrate the result count in 1 sentence, and only mark item 5 done when at least one indicator was found. Include the verbatim example summary: *"Found 12 relevant indicators for water access in Pará."*
   - **KEY STATS CAPTURE (item 6):** explicit directive to call `get_data` on the journalist's chosen indicator(s), then call `update_investigation_item("key_stats_capture", {indicator_code, geography, values_by_year, source})` with the AC4 dict shape.
-- [ ] Keep the existing INTERVIEW RULES (one short question at a time, never multiple, etc.) — they apply to the new sub-sections too.
-- [ ] Do NOT touch `DOSSIER_SYSTEM_PROMPT` — that's 12.3's job.
+- [x] Keep the existing INTERVIEW RULES (one short question at a time, never multiple, etc.) — they apply to the new sub-sections too.
+- [x] Do NOT touch `DOSSIER_SYSTEM_PROMPT` — that's 12.3's job.
 
 ### Task 2: Add the indicators-found session flag (AC: 3)
 
-- [ ] Add a module-level constant `_DATA_VALIDATION_FLAG = "_data_validation_indicators_found"` near the other session-key constants (`_MCP_SESSION_KEY`, `_MCP_TOOLS_KEY` around `app/chat.py:626`).
-- [ ] In `on_chat_start` (existing initialiser block around `app/chat.py:712-728`), add `cl.user_session.set(_DATA_VALIDATION_FLAG, False)` alongside the other `cl.user_session.set(...)` calls.
-- [ ] In `on_chat_resume` (around `app/chat.py:670-702`), add the same initialisation. **On resume, do NOT try to reconstruct the flag from persisted steps** — pretend the journalist needs to re-validate on a fresh session. This is consistent with the project's broader resume policy (dossier content is also not persisted; see `deferred-work.md`).
+- [x] Add a module-level constant `_DATA_VALIDATION_FLAG = "_data_validation_indicators_found"` near the other session-key constants (`_MCP_SESSION_KEY`, `_MCP_TOOLS_KEY` around `app/chat.py:626`).
+- [x] In `on_chat_start` (existing initialiser block around `app/chat.py:712-728`), add `cl.user_session.set(_DATA_VALIDATION_FLAG, False)` alongside the other `cl.user_session.set(...)` calls.
+- [x] In `on_chat_resume` (around `app/chat.py:670-702`), add the same initialisation. **On resume, do NOT try to reconstruct the flag from persisted steps** — pretend the journalist needs to re-validate on a fresh session. This is consistent with the project's broader resume policy (dossier content is also not persisted; see `deferred-work.md`).
 
 ### Task 3: Add `_record_search_indicators_outcome` and call it from the dispatch loop (AC: 3)
 
-- [ ] Add a private helper near the other agentic-loop helpers:
+- [x] Add a private helper near the other agentic-loop helpers:
   ```python
   def _record_search_indicators_outcome(tool_name: str, tool_output: str) -> None:
       """Set the indicators-found session flag when a search_indicators call succeeded.
@@ -110,12 +110,12 @@ So that I don't end up with empty sections.
           cl.user_session.set(_DATA_VALIDATION_FLAG, True)
           logger.debug("[DATA_VALIDATION] search_indicators returned total_count=%d; flag set", total_count)
   ```
-- [ ] In the dispatch loop at `app/chat.py:1001-1007` (the `elif mcp_session is not None:` branch), call `_record_search_indicators_outcome(tool_name, tool_output)` **immediately after** the existing `tool_output = _extract_tool_result_text(call_result)` line and **before** the existing `step.output = …` / `all_tool_outputs.append(tool_output)` lines so a parse error never blocks output collection.
-- [ ] **DO NOT** add the call inside the local-handler branches (`apply_ops`, `update_investigation_item`, `propose_structure`) — only the MCP branch.
+- [x] In the dispatch loop at `app/chat.py:1001-1007` (the `elif mcp_session is not None:` branch), call `_record_search_indicators_outcome(tool_name, tool_output)` **immediately after** the existing `tool_output = _extract_tool_result_text(call_result)` line and **before** the existing `step.output = …` / `all_tool_outputs.append(tool_output)` lines so a parse error never blocks output collection.
+- [x] **DO NOT** add the call inside the local-handler branches (`apply_ops`, `update_investigation_item`, `propose_structure`) — only the MCP branch.
 
 ### Task 4: Gate `update_investigation_item("data_sources_validation", …)` on the flag (AC: 2)
 
-- [ ] In `update_investigation_item` (`app/chat.py:105-136`), after the existing `if item_id not in _INVESTIGATION_ITEMS:` guard (line 107) and **before** the state read (line 110), add:
+- [x] In `update_investigation_item` (`app/chat.py:105-136`), after the existing `if item_id not in _INVESTIGATION_ITEMS:` guard (line 107) and **before** the state read (line 110), add:
   ```python
   if item_id == "data_sources_validation":
       if not cl.user_session.get(_DATA_VALIDATION_FLAG, False):
@@ -126,58 +126,58 @@ So that I don't end up with empty sections.
               )
           }
   ```
-- [ ] The error dict shape mirrors the existing `Unknown item_id` error — only an `error` key, no `phase_gate_reached`. Dispatch consumers already tolerate this (the phase gate only fires when `result.get("phase_gate_reached")` is truthy; missing key is falsy).
-- [ ] Do NOT modify the success path (the `state[item_id] = {"done": True, "value": value}` block and the phase-gate computation stay intact).
+- [x] The error dict shape mirrors the existing `Unknown item_id` error — only an `error` key, no `phase_gate_reached`. Dispatch consumers already tolerate this (the phase gate only fires when `result.get("phase_gate_reached")` is truthy; missing key is falsy).
+- [x] Do NOT modify the success path (the `state[item_id] = {"done": True, "value": value}` block and the phase-gate computation stay intact).
 
 ### Task 5: Tests (AC: 1, 2, 3, 4, 6)
 
-- [ ] Add a new test class `TestDataValidationGate` to `tests/app/test_chat.py`, near `TestPhaseGateLogic`. Use `@pytest.mark.usefixtures("set_required_env_vars")` and the `reload_chat` fixture.
+- [x] Add a new test class `TestDataValidationGate` to `tests/app/test_chat.py`, near `TestPhaseGateLogic`. Use `@pytest.mark.usefixtures("set_required_env_vars")` and the `reload_chat` fixture.
 
-- [ ] **AC1 (prompt directives)** — `test_investigation_prompt_directs_search_indicators_at_item_5`:
+- [x] **AC1 (prompt directives)** — `test_investigation_prompt_directs_search_indicators_at_item_5`:
   - Import `INVESTIGATION_SYSTEM_PROMPT` from `app.prompts` (via `reload_chat`) and assert the string contains both `"search_indicators"` and the phrase `"Found 12 relevant indicators"` (the verbatim example, used as a stable test anchor — adjust the example to whatever Task 1 commits, but pick something distinctive enough to anchor).
 
-- [ ] **AC2 (gate rejects when flag is False)** — `test_data_sources_validation_rejected_without_search`:
+- [x] **AC2 (gate rejects when flag is False)** — `test_data_sources_validation_rejected_without_search`:
   - Patch `cl.user_session` so `_data_validation_indicators_found` reads `False`.
   - Call `reload_chat.update_investigation_item("data_sources_validation", "Found something")`.
   - Assert the return is `{"error": "...no indicators have been found..."}` (substring match: `"no indicators have been found"`).
   - Assert `cl.user_session.set` was NOT called with `"investigation"` updating item 5 (i.e., state mutation did not happen).
 
-- [ ] **AC2 (gate accepts when flag is True)** — `test_data_sources_validation_accepted_with_search`:
+- [x] **AC2 (gate accepts when flag is True)** — `test_data_sources_validation_accepted_with_search`:
   - Patch `cl.user_session` so `_data_validation_indicators_found` reads `True` and `investigation` starts from `_empty_investigation_state()`.
   - Call `update_investigation_item("data_sources_validation", "Found 12 indicators")`.
   - Assert return contains `"status": "ok"` and `"phase_gate_reached"` key is present (False unless items 1–4 also done).
 
-- [ ] **AC3 (flag set on successful search_indicators)** — `test_record_search_indicators_outcome_sets_flag_on_success`:
+- [x] **AC3 (flag set on successful search_indicators)** — `test_record_search_indicators_outcome_sets_flag_on_success`:
   - Build `tool_output = json.dumps({"success": True, "total_count": 12, "returned_count": 12, "data": [...], "truncated": False})`.
   - Stub `cl.user_session.set` to capture calls.
   - Call `reload_chat._record_search_indicators_outcome("search_indicators", tool_output)`.
   - Assert `set` was called with `(_DATA_VALIDATION_FLAG, True)`.
 
-- [ ] **AC3 (flag NOT set on zero results)** — `test_record_search_indicators_outcome_does_not_set_flag_on_zero_count`:
+- [x] **AC3 (flag NOT set on zero results)** — `test_record_search_indicators_outcome_does_not_set_flag_on_zero_count`:
   - Same as above but `total_count == 0`. Assert `set(_DATA_VALIDATION_FLAG, True)` was NOT called.
 
-- [ ] **AC3 (flag NOT set on error response)** — `test_record_search_indicators_outcome_does_not_set_flag_on_error_response`:
+- [x] **AC3 (flag NOT set on error response)** — `test_record_search_indicators_outcome_does_not_set_flag_on_error_response`:
   - `tool_output = json.dumps({"success": False, "error": "api_error", "error_type": "api_error"})`. Assert flag not set.
 
-- [ ] **AC3 (no-op for other tools)** — `test_record_search_indicators_outcome_is_noop_for_other_tools`:
+- [x] **AC3 (no-op for other tools)** — `test_record_search_indicators_outcome_is_noop_for_other_tools`:
   - `tool_name == "get_data"` with a perfectly successful response. Assert flag not set (tool-name guard works).
 
-- [ ] **AC3 (resilient to non-JSON)** — `test_record_search_indicators_outcome_handles_non_json`:
+- [x] **AC3 (resilient to non-JSON)** — `test_record_search_indicators_outcome_handles_non_json`:
   - `tool_output = "not JSON"`. Assert no exception raised and flag not set.
 
-- [ ] **AC3 (dispatch loop calls the helper)** — `test_dispatch_loop_calls_record_helper_after_mcp_call`:
+- [x] **AC3 (dispatch loop calls the helper)** — `test_dispatch_loop_calls_record_helper_after_mcp_call`:
   - End-to-end: send a `tool_use` for `search_indicators` through `on_message`; patch `mcp_session.call_tool` to return a result whose `_extract_tool_result_text` is a JSON string with `total_count: 5`; patch `cl.user_session.get/set`; after the loop, assert `cl.user_session.set(_DATA_VALIDATION_FLAG, True)` was awaited.
 
-- [ ] **AC4 (prompt directs key-stats capture)** — `test_investigation_prompt_directs_key_stats_capture`:
+- [x] **AC4 (prompt directs key-stats capture)** — `test_investigation_prompt_directs_key_stats_capture`:
   - Assert the prompt contains `"key_stats_capture"` AND `"update_investigation_item"` AND substrings indicating the dict shape (e.g., `"indicator_code"`, `"values_by_year"`).
 
-- [ ] **AC6 (lint + format + suite green)** — manual check; CI / pre-commit covers ruff.
+- [x] **AC6 (lint + format + suite green)** — manual check; CI / pre-commit covers ruff.
 
 ### Task 6: Lint, format, full test suite (AC: 6)
 
-- [ ] `uv run ruff check .`
-- [ ] `uv run ruff format --check .`
-- [ ] `uv run pytest -q`
+- [x] `uv run ruff check .`
+- [x] `uv run ruff format --check .`
+- [x] `uv run pytest -q`
 
 ---
 
@@ -277,13 +277,13 @@ or
 |---|---|---|
 | `app/prompts.py` | UPDATE | Append DATA VALIDATION + KEY STATS CAPTURE sub-sections to `INVESTIGATION_SYSTEM_PROMPT` (Task 1) |
 | `app/chat.py` | UPDATE | New session constant + `_record_search_indicators_outcome` helper + init calls in `on_chat_start` / `on_chat_resume` + gate check in `update_investigation_item` + hook call in MCP dispatch (Tasks 2–4) |
-| `tests/app/test_chat.py` | UPDATE | New `TestDataValidationGate` class with the 9 tests (Task 5) |
+| `tests/app/test_chat.py` | UPDATE | New `TestDataValidationGate` class with 12 tests (10 from Task 5 + 2 added during code review) |
 
 **Files this story must NOT touch:** `mcp_server/**`, `public/**`, `app/citations.py`, `DOSSIER_SYSTEM_PROMPT`. If any of those need changes to make a test pass, the design has drifted — escalate.
 
 ## Testing Requirements
 
-- 9 new tests in `tests/app/test_chat.py` (Task 5).
+- 12 new tests in `tests/app/test_chat.py` (10 from Task 5 + 2 defensive-branch tests added during code review).
 - Existing test suite must stay green: `uv run pytest -q`.
 - Lint + format clean per Task 6.
 - All tests `async` where they exercise async code; sync tests for pure helpers (the `_record_search_indicators_outcome` helper is sync because it only reads/writes `cl.user_session` which is sync).
@@ -377,22 +377,46 @@ Rules from `_bmad-output/project-context.md` most relevant to 12.2:
 
 ### Agent Model Used
 
-_To be filled by the dev agent._
+claude-sonnet-4-6
 
 ### Debug Log References
 
-_To be filled by the dev agent._
+No debug issues encountered. All tasks implemented cleanly on first pass.
 
 ### Completion Notes List
 
-_To be filled by the dev agent._
+- Task 1: Appended DATA VALIDATION and KEY STATS CAPTURE sub-sections to `INVESTIGATION_SYSTEM_PROMPT` in `app/prompts.py`. Verbatim example "Found 12 relevant indicators" anchors AC1 test.
+- Task 2: Added `_DATA_VALIDATION_FLAG = "_data_validation_indicators_found"` constant next to `_MCP_SESSION_KEY`/`_MCP_TOOLS_KEY`. Initialized to `False` in both `on_chat_start` and `on_chat_resume`.
+- Task 3: Added `_record_search_indicators_outcome` sync helper after `_extract_tool_result_text`. Called it from the MCP branch immediately after `_extract_tool_result_text(call_result)`, before `step.output` and `all_tool_outputs.append`. Not added to local-handler branches.
+- Task 4: Inserted gate check in `update_investigation_item` after the `Unknown item_id` guard, before the state read. Error shape mirrors existing pattern — only `{"error": ...}`, no `phase_gate_reached` key.
+- Task 5: Added 10 tests in `TestDataValidationGate` class at end of `tests/app/test_chat.py`. Also patched the existing `test_gate_reached_when_all_five_items_done` in `TestPhaseGateLogic` to add `"_data_validation_indicators_found": True` to its store, since it directly calls `update_investigation_item("data_sources_validation", ...)` and the new gate would have rejected it.
+- Task 6: `ruff check .` and `ruff format --check .` both clean. `uv run pytest -q` → 419 passed (10 new + 409 existing, no regressions).
 
 ### File List
 
-_To be filled by the dev agent._
+- `app/prompts.py` — appended DATA VALIDATION + KEY STATS CAPTURE sub-sections to `INVESTIGATION_SYSTEM_PROMPT`
+- `app/chat.py` — added `_DATA_VALIDATION_FLAG` constant, init in `on_chat_start` and `on_chat_resume`, `_record_search_indicators_outcome` helper, hook call in MCP dispatch branch, gate check in `update_investigation_item`
+- `tests/app/test_chat.py` — added `TestDataValidationGate` (10 tests); patched `test_gate_reached_when_all_five_items_done` in `TestPhaseGateLogic`
 
 ### Change Log
 
 | Date | Notes |
 |---|---|
 | 2026-05-30 | Story created by `/bmad-create-story` (batch draft of Epic 12 stories 2-4). |
+| 2026-05-30 | Implemented by dev agent (claude-sonnet-4-6): prompt rewrite, session flag, `_record_search_indicators_outcome` helper, gate check, 10 tests. 419 tests pass, lint clean. |
+
+---
+
+## Review Findings
+
+_Code review 2026-05-30 (`/bmad-code-review`, 3 adversarial layers: Blind Hunter, Edge Case Hunter, Acceptance Auditor). The Acceptance Auditor CONFIRMED all 6 ACs satisfied, no forbidden files touched, anti-patterns avoided, lint/format/tests green. The items below are residual edge-case and quality findings; the by-design choices flagged by the adversarial layers (monotonic session flag, resume-resets-flag, no server-side schema validation of `key_stats_capture`) were dismissed as explicitly intended per this spec._
+
+### Patch
+
+- [x] [Review][Patch] Strengthen 12.2 test coverage [tests/app/test_chat.py] — ✅ APPLIED (added item-5-persisted assertion to the accept test + 2 defensive `total_count` branch tests; 421 pass). — (a) `test_data_sources_validation_accepted_with_search` asserts only `status == "ok"` and `phase_gate_reached in result`; it does not assert item 5's state entry actually became `{"done": True, ...}` (a regression returning "ok" without persisting the item would still pass). (b) The defensive `total_count` branches in `_record_search_indicators_outcome` (missing key → default 0; non-coercible type → `except (TypeError, ValueError)`) have no unit tests. Add the missing assertion + 1-2 small tests. Low priority — Auditor rated coverage "adequate" via the rejection test. From Blind Hunter #11/#12 + Acceptance Auditor.
+- [x] [Review][Patch] Spec text said "9 tests" but 10 were delivered [12-2-data-validation-gate.md:280,286] — ✅ APPLIED (updated both references to "12 tests = 10 from Task 5 + 2 added during code review"). — the File Structure table row and Testing Requirements say "9 tests"; the detailed Task 5 checklist (and the implementation) correctly have 10. Documentation-only fix. From Acceptance Auditor.
+
+### Deferred
+
+- [x] [Review][Defer] Large `search_indicators` result truncated → validation flag silently never set [app/chat.py:684-685, 1042] — `_extract_tool_result_text` truncates any tool output over `tool_result_max_chars` (default 50000) and appends `"[... truncated, results too large ...]"`; `_record_search_indicators_outcome` then runs `json.loads` on the truncated string → `JSONDecodeError` → flag never set even though `search_indicators` genuinely returned indicators. For a >50KB result, item 5 (`data_sources_validation`) becomes silently un-markable and the investigation can deadlock at the phase gate. Real, but only on large results. Deferred during code review (no reason given). Found by Edge Case Hunter (HIGH) + Blind Hunter.
+- [x] [Review][Defer] Zero-results deadlock for niche topics [app/prompts.py + app/chat.py gate] — when `search_indicators` legitimately returns `total_count == 0`, both the prompt ("Do not mark the item done if no indicators were found") and the server gate forbid marking item 5, and the LLM is given no instructed escape (e.g. broaden the query) — so the phase gate can never be reached for genuinely sparse topics. Owned by Story 12.4 (no-data UX). Deferred. Found by Edge Case Hunter (HIGH).

@@ -106,6 +106,13 @@ def update_investigation_item(item_id: str, value: Any) -> dict[str, Any]:
     """Mark an investigation checklist item as complete and return status."""
     if item_id not in _INVESTIGATION_ITEMS:
         return {"error": f"Unknown item_id: '{item_id}'"}
+        if not cl.user_session.get(_DATA_VALIDATION_FLAG, False):
+            return {
+                "error": (
+                    "data_sources_validation cannot be marked done — no indicators "
+                    "have been found this session. Call search_indicators first."
+                )
+            }
 
     state = cl.user_session.get("investigation")
     if not isinstance(state, dict):
@@ -626,6 +633,7 @@ async def _process_upload_element(element: cl.File) -> str | None:  # type: igno
 _MCP_SESSION_KEY = "mcp_session"
 _MCP_TOOLS_KEY = "mcp_tools"
 _MCP_EXIT_STACK_KEY = "mcp_exit_stack"
+_DATA_VALIDATION_FLAG = "_data_validation_indicators_found"
 
 
 def _make_client():
@@ -654,26 +662,55 @@ def _mcp_tools_to_anthropic(mcp_tools: list) -> list[dict[str, Any]]:
     return result
 
 
-def _extract_tool_result_text(call_result) -> str:
-    """Extract text from an MCP CallToolResult, handling errors."""
+def _join_tool_result_text(call_result) -> str:
+    """Join the text blocks of an MCP CallToolResult WITHOUT truncation.
+
+    Error results are prefixed with 'Error:'. This un-truncated form is used both by
+    _extract_tool_result_text (which then truncates for the model) and by
+    _record_search_indicators_outcome, which needs the full JSON: truncating first
+    would break json.loads → the data-validation flag is never set → the investigation
+    deadlocks at the phase gate for large (>tool_result_max_chars) search_indicators
+    results.
+    """
+    parts = [block.text for block in call_result.content if hasattr(block, "text")]
     if call_result.isError:
         # Surface the error to Claude so it can narrate gracefully
-        parts = []
-        for block in call_result.content:
-            if hasattr(block, "text"):
-                parts.append(block.text)
         return "Error: " + (" ".join(parts) if parts else "Unknown MCP tool error")
+    return "\n".join(parts) if parts else ""
 
-    parts = []
-    for block in call_result.content:
-        if hasattr(block, "text"):
-            parts.append(block.text)
-    text = "\n".join(parts) if parts else ""
 
+def _extract_tool_result_text(call_result) -> str:
+    """Extract text from an MCP CallToolResult, truncating oversized output for the model."""
+    text = _join_tool_result_text(call_result)
     max_chars = settings.tool_result_max_chars
     if len(text) > max_chars:
         text = text[:max_chars] + "\n\n[... truncated, results too large ...]"
     return text
+
+
+def _record_search_indicators_outcome(tool_name: str, tool_output: str) -> None:
+    """Set the indicators-found session flag when a search_indicators call succeeded.
+
+    Called from the agentic loop right after _extract_tool_result_text. Cheap
+    no-op for any other tool. JSON-parse failures are logged at debug and ignored
+    (the loop must not crash on a malformed MCP payload).
+    """
+    if tool_name != "search_indicators":
+        return
+    try:
+        parsed = json.loads(tool_output)
+    except (json.JSONDecodeError, TypeError):
+        logger.debug("[DATA_VALIDATION] search_indicators output is not JSON; skipping flag set")
+        return
+    if not isinstance(parsed, dict) or not parsed.get("success"):
+        return
+    try:
+        total_count = int(parsed.get("total_count", 0))
+    except (TypeError, ValueError):
+        return
+    if total_count >= 1:
+        cl.user_session.set(_DATA_VALIDATION_FLAG, True)
+        logger.debug("[DATA_VALIDATION] search_indicators returned total_count=%d; flag set", total_count)
 
 
 # ---------------------------------------------------------------------------
@@ -715,6 +752,7 @@ async def on_chat_resume(thread: dict) -> None:
     dossier_phase = "dossier" if is_dossier else "investigating"
     cl.user_session.set("dossier", {"phase": dossier_phase, "content": "", "version": 0})
     cl.user_session.set("investigation", _empty_investigation_state())
+    cl.user_session.set(_DATA_VALIDATION_FLAG, False)
     if is_dossier:
         await reveal_dossier_canvas()
 
@@ -751,6 +789,7 @@ async def on_chat_resume(thread: dict) -> None:
 async def on_chat_start():
     cl.user_session.set("dossier", {"phase": "investigating", "content": "", "version": 0})
     cl.user_session.set("investigation", _empty_investigation_state())
+    cl.user_session.set(_DATA_VALIDATION_FLAG, False)
 
     cl.user_session.set("history", [])
     cl.user_session.set(_MCP_SESSION_KEY, None)
@@ -1002,6 +1041,11 @@ async def _agentic_loop(
                     try:
                         call_result = await mcp_session.call_tool(tool_name, arguments=tool_input)
                         tool_output = _extract_tool_result_text(call_result)
+                        # Record the data-validation outcome from the UN-truncated text.
+                        # tool_output may be truncated for the model; feeding that to the
+                        # recorder would break json.loads → the validation flag would never
+                        # be set → the phase gate would deadlock on large search results.
+                        _record_search_indicators_outcome(tool_name, _join_tool_result_text(call_result))
                     except Exception as exc:
                         logger.error("MCP tool call failed for %s: %s", tool_name, exc)
                         tool_output = f"Error calling tool '{tool_name}': {exc}"

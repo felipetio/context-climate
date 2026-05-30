@@ -2360,7 +2360,13 @@ class TestPhaseGateLogic:
         state = reload_chat._empty_investigation_state()
         for k in ("topic_definition", "geography_scope", "time_range", "target_audience"):
             state[k] = {"done": True, "value": "set"}
-        store = {"investigation": state, "dossier": {"phase": "investigating"}}
+        # _data_validation_indicators_found must be True — the gate rejects without a
+        # prior successful search_indicators call (Story 12.2 AC2).
+        store = {
+            "investigation": state,
+            "dossier": {"phase": "investigating"},
+            "_data_validation_indicators_found": True,
+        }
         with patch("app.chat.cl.user_session") as session_mock:
             session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
             session_mock.set.side_effect = lambda k, v: store.update({k: v})
@@ -3559,3 +3565,339 @@ class TestToggleDossier:
             await reload_chat.on_toggle_dossier(action)
 
         reveal_mock.assert_awaited_once()
+
+
+@pytest.mark.usefixtures("set_required_env_vars")
+class TestDataValidationGate:
+    """Story 12.2: search_indicators gate, session flag, and prompt directives."""
+
+    # ------------------------------------------------------------------
+    # AC1: Prompt directs the LLM to call search_indicators at item 5
+    # ------------------------------------------------------------------
+
+    def test_investigation_prompt_directs_search_indicators_at_item_5(self, reload_chat):
+        """AC1: INVESTIGATION_SYSTEM_PROMPT explicitly directs search_indicators call at item 5."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        assert "search_indicators" in INVESTIGATION_SYSTEM_PROMPT
+        assert "Found 12 relevant indicators" in INVESTIGATION_SYSTEM_PROMPT
+
+    # ------------------------------------------------------------------
+    # AC2: Gate rejects data_sources_validation without a successful search
+    # ------------------------------------------------------------------
+
+    def test_data_sources_validation_rejected_without_search(self, reload_chat):
+        """AC2: update_investigation_item returns error when flag is False."""
+        store = {
+            "investigation": reload_chat._empty_investigation_state(),
+            "dossier": {"phase": "investigating"},
+            "_data_validation_indicators_found": False,
+        }
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set = MagicMock(side_effect=lambda k, v: store.update({k: v}))
+            result = reload_chat.update_investigation_item("data_sources_validation", "Found something")
+
+        assert "error" in result
+        assert "no indicators have been found" in result["error"]
+        # State must not have been mutated (set was never called with "investigation")
+        investigation_set_calls = [c for c in session_mock.set.call_args_list if c.args[0] == "investigation"]
+        assert investigation_set_calls == []
+
+    def test_data_sources_validation_accepted_with_search(self, reload_chat):
+        """AC2: update_investigation_item succeeds when flag is True."""
+        store = {
+            "investigation": reload_chat._empty_investigation_state(),
+            "dossier": {"phase": "investigating"},
+            "_data_validation_indicators_found": True,
+        }
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            result = reload_chat.update_investigation_item("data_sources_validation", "Found 12 indicators")
+
+        assert result.get("status") == "ok"
+        assert "phase_gate_reached" in result
+        # The item must actually be persisted as done — a regression that returned
+        # status:ok without writing item 5 back to state would otherwise pass.
+        assert store["investigation"]["data_sources_validation"] == {
+            "done": True,
+            "value": "Found 12 indicators",
+        }
+
+    # ------------------------------------------------------------------
+    # AC3: _record_search_indicators_outcome helper unit tests
+    # ------------------------------------------------------------------
+
+    def test_record_search_indicators_outcome_sets_flag_on_success(self, reload_chat):
+        """AC3: flag is set when search_indicators returns success=True and total_count>=1."""
+        import json as _json
+
+        tool_output = _json.dumps(
+            {"success": True, "total_count": 12, "returned_count": 12, "data": [{"x": 1}], "truncated": False}
+        )
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            reload_chat._record_search_indicators_outcome("search_indicators", tool_output)
+
+        session_mock.set.assert_called_once_with(reload_chat._DATA_VALIDATION_FLAG, True)
+
+    def test_record_search_indicators_outcome_does_not_set_flag_on_zero_count(self, reload_chat):
+        """AC3: flag is NOT set when total_count is 0."""
+        import json as _json
+
+        tool_output = _json.dumps(
+            {"success": True, "total_count": 0, "returned_count": 0, "data": [], "truncated": False}
+        )
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            reload_chat._record_search_indicators_outcome("search_indicators", tool_output)
+
+        flag = reload_chat._DATA_VALIDATION_FLAG
+        flag_set_calls = [c for c in session_mock.set.call_args_list if c.args == (flag, True)]
+        assert flag_set_calls == []
+
+    def test_record_search_indicators_outcome_does_not_set_flag_on_error_response(self, reload_chat):
+        """AC3: flag is NOT set when the response has success=False."""
+        import json as _json
+
+        tool_output = _json.dumps({"success": False, "error": "api_error", "error_type": "api_error"})
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            reload_chat._record_search_indicators_outcome("search_indicators", tool_output)
+
+        flag = reload_chat._DATA_VALIDATION_FLAG
+        flag_set_calls = [c for c in session_mock.set.call_args_list if c.args == (flag, True)]
+        assert flag_set_calls == []
+
+    def test_record_search_indicators_outcome_does_not_set_flag_on_missing_total_count(self, reload_chat):
+        """AC3: a success response missing total_count defaults to 0 and does NOT set the flag."""
+        import json as _json
+
+        tool_output = _json.dumps({"success": True, "returned_count": 3, "data": [{}, {}, {}], "truncated": False})
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            reload_chat._record_search_indicators_outcome("search_indicators", tool_output)
+
+        flag = reload_chat._DATA_VALIDATION_FLAG
+        flag_set_calls = [c for c in session_mock.set.call_args_list if c.args == (flag, True)]
+        assert flag_set_calls == []
+
+    def test_record_search_indicators_outcome_handles_non_coercible_total_count(self, reload_chat):
+        """AC3: a non-coercible total_count is swallowed (no raise) and does NOT set the flag."""
+        import json as _json
+
+        tool_output = _json.dumps({"success": True, "total_count": "not-a-number", "data": [{}], "truncated": False})
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            # Must not raise
+            reload_chat._record_search_indicators_outcome("search_indicators", tool_output)
+
+        flag = reload_chat._DATA_VALIDATION_FLAG
+        flag_set_calls = [c for c in session_mock.set.call_args_list if c.args == (flag, True)]
+        assert flag_set_calls == []
+
+    def test_record_search_indicators_outcome_is_noop_for_other_tools(self, reload_chat):
+        """AC3: tool-name guard makes the helper a no-op for non-search_indicators tools."""
+        import json as _json
+
+        tool_output = _json.dumps(
+            {"success": True, "total_count": 5, "returned_count": 5, "data": [{}], "truncated": False}
+        )
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            reload_chat._record_search_indicators_outcome("get_data", tool_output)
+
+        session_mock.set.assert_not_called()
+
+    def test_record_search_indicators_outcome_handles_non_json(self, reload_chat):
+        """AC3: non-JSON tool output does not raise — logs at debug and returns."""
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            # Must not raise
+            reload_chat._record_search_indicators_outcome("search_indicators", "not JSON")
+
+        flag = reload_chat._DATA_VALIDATION_FLAG
+        flag_set_calls = [c for c in session_mock.set.call_args_list if c.args == (flag, True)]
+        assert flag_set_calls == []
+
+    async def test_dispatch_loop_calls_record_helper_after_mcp_call(self, reload_chat):
+        """AC3 e2e: the agentic loop sets the flag after a successful search_indicators MCP call."""
+        import json as _json
+
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="search_indicators",
+            input={"query": "water access", "country": "BRA"},
+            id="toolu_search_01",
+        )
+        text_block = _make_fake_content_block("text", "Found indicators.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Found indicators."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_with_tool if call_count == 1 else stream_final
+
+        fake_mcp_content = MagicMock()
+        fake_mcp_content.text = _json.dumps(
+            {"success": True, "total_count": 5, "returned_count": 5, "data": [{}], "truncated": False}
+        )
+        fake_mcp_result = MagicMock()
+        fake_mcp_result.isError = False
+        fake_mcp_result.content = [fake_mcp_content]
+
+        fake_mcp_session = AsyncMock()
+        fake_mcp_session.call_tool = AsyncMock(return_value=fake_mcp_result)
+
+        tools = [{"name": "search_indicators", "description": "Search", "input_schema": {"type": "object"}}]
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        store: dict = {
+            "history": [],
+            "mcp_session": fake_mcp_session,
+            "mcp_tools": tools,
+            "dossier": {"phase": "investigating"},
+            "investigation": reload_chat._empty_investigation_state(),
+            "_data_validation_indicators_found": False,
+        }
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            incoming = MagicMock()
+            incoming.content = "Find water access indicators for Brazil"
+            await reload_chat.on_message(incoming)
+
+        # The flag must have been set to True after the successful MCP call
+        assert store.get("_data_validation_indicators_found") is True
+
+    def test_join_tool_result_text_does_not_truncate_large_success(self, reload_chat):
+        """Regression: _join_tool_result_text returns the FULL text even when it exceeds
+        tool_result_max_chars, so the data-validation recorder can json.loads it.
+        (_extract_tool_result_text truncates; the recorder must not see truncated text.)"""
+        import json as _json
+
+        big_payload = _json.dumps(
+            {
+                "success": True,
+                "total_count": 12,
+                "returned_count": 4000,
+                "data": [{"INDICATOR": "EN.ATM.CO2E.PC", "val": i} for i in range(4000)],
+                "truncated": False,
+            }
+        )
+        assert len(big_payload) > reload_chat.settings.tool_result_max_chars
+        result = MagicMock()
+        result.isError = False
+        block = MagicMock()
+        block.text = big_payload
+        result.content = [block]
+
+        full = reload_chat._join_tool_result_text(result)
+        # Untruncated and still valid JSON.
+        assert full == big_payload
+        assert "[... truncated" not in full
+        assert _json.loads(full)["total_count"] == 12
+
+    async def test_dispatch_loop_sets_flag_for_large_search_result(self, reload_chat):
+        """Regression (12.2 deferred HIGH): a search_indicators result large enough to be
+        truncated by _extract_tool_result_text must STILL set the validation flag, so item 5
+        is markable and the phase gate is reachable. Before the fix, json.loads on the
+        truncated text raised → flag never set → deadlock."""
+        import json as _json
+
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="search_indicators",
+            input={"query": "water access", "country": "BRA"},
+            id="toolu_search_big",
+        )
+        text_block = _make_fake_content_block("text", "Found many indicators.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(
+            tokens=["Found many indicators."], stop_reason="end_turn", content_blocks=[text_block]
+        )
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_with_tool if call_count == 1 else stream_final
+
+        big_payload = _json.dumps(
+            {
+                "success": True,
+                "total_count": 12,
+                "returned_count": 4000,
+                "data": [{"INDICATOR": "EN.ATM.CO2E.PC", "val": i} for i in range(4000)],
+                "truncated": False,
+            }
+        )
+        assert len(big_payload) > reload_chat.settings.tool_result_max_chars
+        fake_mcp_content = MagicMock()
+        fake_mcp_content.text = big_payload
+        fake_mcp_result = MagicMock()
+        fake_mcp_result.isError = False
+        fake_mcp_result.content = [fake_mcp_content]
+
+        fake_mcp_session = AsyncMock()
+        fake_mcp_session.call_tool = AsyncMock(return_value=fake_mcp_result)
+
+        tools = [{"name": "search_indicators", "description": "Search", "input_schema": {"type": "object"}}]
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        store: dict = {
+            "history": [],
+            "mcp_session": fake_mcp_session,
+            "mcp_tools": tools,
+            "dossier": {"phase": "investigating"},
+            "investigation": reload_chat._empty_investigation_state(),
+            "_data_validation_indicators_found": False,
+        }
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            incoming = MagicMock()
+            incoming.content = "Find water access indicators for Brazil"
+            await reload_chat.on_message(incoming)
+
+        # Even though the result was truncated for the model, the flag is set from the
+        # un-truncated text.
+        assert store.get("_data_validation_indicators_found") is True
+
+    # ------------------------------------------------------------------
+    # AC4: Prompt directs key-stats capture via update_investigation_item
+    # ------------------------------------------------------------------
+
+    def test_investigation_prompt_directs_key_stats_capture(self, reload_chat):
+        """AC4: INVESTIGATION_SYSTEM_PROMPT directs get_data + update_investigation_item for key_stats_capture."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        assert "key_stats_capture" in INVESTIGATION_SYSTEM_PROMPT
+        assert "update_investigation_item" in INVESTIGATION_SYSTEM_PROMPT
+        assert "indicator_code" in INVESTIGATION_SYSTEM_PROMPT
+        assert "values_by_year" in INVESTIGATION_SYSTEM_PROMPT
