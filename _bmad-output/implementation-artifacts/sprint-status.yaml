@@ -151,11 +151,11 @@ development_status:
   epic-11-retrospective: optional
 
   # Epic 12: Data-Validated Investigation
-  epic-12: in-progress  # flipped 2026-05-30 (first 12-x story drafted: 12-1)
-  12-1-mcp-tools-in-dossier-session: ready-for-dev  # drafted 2026-05-30 via /bmad-create-story
-  12-2-data-validation-gate: backlog
-  12-3-citation-flow-into-dossier-sections: backlog
-  12-4-no-data-handling-in-investigation: backlog
+  epic-12: in-progress  # flipped 2026-05-30 (all 4 stories drafted ahead of dev)
+  12-1-mcp-tools-in-dossier-session: ready-for-dev  # drafted 2026-05-30; verification + test lock-in (no production code change)
+  12-2-data-validation-gate: ready-for-dev  # drafted 2026-05-30; gate via _data_validation_indicators_found flag + prompts
+  12-3-citation-flow-into-dossier-sections: ready-for-dev  # drafted 2026-05-30; depends on 12.2; reuses 9.1 citation pipeline
+  12-4-no-data-handling-in-investigation: ready-for-dev  # drafted 2026-05-30; depends on 12.2 + 12.3; prompt-only
   epic-12-retrospective: optional
 
   # Epic 13: Editorial Intelligence
