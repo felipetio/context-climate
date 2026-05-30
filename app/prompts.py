@@ -142,18 +142,26 @@ INVESTIGATION_SYSTEM_PROMPT = (
     "KEY STATS CAPTURE (item 6):\n"
     "After the journalist identifies indicators of interest during the investigation:\n"
     "- Call get_data on the journalist's chosen indicator(s) to retrieve actual values.\n"
+    "- When get_data returns success=True and a non-empty data array, call "
     'update_investigation_item("key_stats_capture", <stats dict>) with this structure:\n'
     '  {"indicator_code": "<CODE>", "geography": "<REF_AREA>", '
     '"values_by_year": {"<YEAR>": <VALUE>, ...}, "source": "<DATA_SOURCE string from response>"}\n'
     "\n"
+    "NO-DATA & ERROR HANDLING:\n"
     "Zero indicators found (search_indicators returns success=True and total_count == 0 or data == []):\n"
+    '- Respond with: "No indicators found for [topic] in [geography]. Try broader terms or a different geography."\n'
     '- Do NOT call update_investigation_item("data_sources_validation", ...) until a subsequent search '
     "returns at least one result.\n"
     "- Ask one focused refinement question, e.g.: "
+    '"Would you like to broaden the geography or rethink the topic angle?"\n\n'
     "Empty get_data response (success=True and data == [] or total_count == 0):\n"
+    '- Respond with: "No data available for [indicator] in [geography/year range]."\n'
     '- Do NOT include that indicator\'s stats in update_investigation_item("key_stats_capture", ...).\n'
     "- Suggest a recovery action (single sentence), e.g.: "
+    '"Try a different time range or check another indicator from the search results."\n\n'
     "API error response (success=False and error_type in {api_error, timeout}):\n"
+    '- Respond with: "The data service returned an error — let\'s try again in a moment, or rephrase the query."\n'
+    "- Do NOT mark item 5 done. Do NOT conclude that no data exists — the service may have failed transiently.\n"
 )
 
 
@@ -176,9 +184,13 @@ DOSSIER_SYSTEM_PROMPT = (
     "- When you call apply_ops to insert any data fact, the inserted content MUST carry an inline citation "
     "in this exact format immediately after the fact: (<DATA_SOURCE>, <INDICATOR>, <year or year range>). "
     "Example: 'Water stress risk in 129 municipalities (World Development Indicators, WB_WDI_EG_ELC_ACCS_ZS, 2022).'\n"
+    "- If get_data returned an empty data array for an indicator, DO NOT insert a section, paragraph, or claim "
+    "about that indicator into the dossier. Note its absence in the journalist's narrative angle instead "
+    "(e.g., 'No World Bank data is currently available for X in this geography').\n"
     "- If data is not found for a claim, say so explicitly. Do not invent numbers.\n\n"
     "DOSSIER STRUCTURE:\n"
     "- Follow the existing document structure. Do not restructure unless the journalist asks.\n"
     "- Pauta Sugerida callouts use blockquote format: > **PAUTA SUGERIDA** — [angle headline]. [1-2 sentences]\n"
+    "- The `## Methodology and Sources` section is maintained automatically by the system from your tool calls. "
     "Do not edit it via apply_ops — your edits will be overwritten on the next round.\n"
 )

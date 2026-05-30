@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-24
-last_updated: 2026-05-30  # 12-1 drafted (ready-for-dev), epic-12 -> in-progress (first 12-x). Prior: epic-10 -> done (closed formally)
+last_updated: 2026-05-30  # 12-4 -> done (code-reviewed; 2 test-hardening patches applied, 434 pass). Prior: 12-3 -> done
 project: bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -152,10 +152,10 @@ development_status:
 
   # Epic 12: Data-Validated Investigation
   epic-12: in-progress  # flipped 2026-05-30 (all 4 stories drafted ahead of dev)
-  12-1-mcp-tools-in-dossier-session: ready-for-dev  # drafted 2026-05-30; verification + test lock-in (no production code change)
-  12-2-data-validation-gate: ready-for-dev  # drafted 2026-05-30; gate via _data_validation_indicators_found flag + prompts
-  12-3-citation-flow-into-dossier-sections: ready-for-dev  # drafted 2026-05-30; depends on 12.2; reuses 9.1 citation pipeline
-  12-4-no-data-handling-in-investigation: ready-for-dev  # drafted 2026-05-30; depends on 12.2 + 12.3; prompt-only
+  12-1-mcp-tools-in-dossier-session: done  # code-reviewed 2026-05-30 (clean; 2 test patches applied, 3 defers→12.4/Epic10-11); 5 tests added, no production code change
+  12-2-data-validation-gate: done  # code-reviewed 2026-05-30 (all 6 ACs confirmed; 2 test patches applied, 2 defers→deferred-work.md incl. >50KB truncation HIGH); 421 pass
+  12-3-citation-flow-into-dossier-sections: done  # code-reviewed 2026-05-30 (all 5 ACs confirmed; 1 decision→line-anchor patch + 1 test patch applied, 9 dismissed); 430 pass
+  12-4-no-data-handling-in-investigation: done  # code-reviewed 2026-05-30 (all 5 ACs confirmed; 2 test-hardening patches applied, 4 defers→12.2/12.3; 434 pass)
   epic-12-retrospective: optional
 
   # Epic 13: Editorial Intelligence

@@ -4255,3 +4255,75 @@ class TestCitationFlowIntoDossierSections:
         assert refs_arg[0]["source"] == "World Development Indicators"
         # Chat-side ref block also fires
         assert "World Development Indicators" in msg_mock.content
+
+
+@pytest.mark.usefixtures("set_required_env_vars")
+class TestNoDataHandling:
+    """Story 12.4: no-data and API-error narration directives in investigation and dossier prompts."""
+
+    # ------------------------------------------------------------------
+    # AC1: zero-indicator copy in INVESTIGATION_SYSTEM_PROMPT
+    # ------------------------------------------------------------------
+
+    def test_investigation_prompt_handles_zero_search_results(self, reload_chat):
+        """AC1: INVESTIGATION_SYSTEM_PROMPT contains the verbatim zero-indicators copy."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        assert "No indicators found for [topic] in [geography]. Try broader terms" in INVESTIGATION_SYSTEM_PROMPT
+
+    # ------------------------------------------------------------------
+    # AC2: empty get_data copy + don't-capture rule in INVESTIGATION_SYSTEM_PROMPT
+    # ------------------------------------------------------------------
+
+    def test_investigation_prompt_handles_empty_get_data(self, reload_chat):
+        """AC2: INVESTIGATION_SYSTEM_PROMPT contains the verbatim empty-get_data copy and don't-capture rule."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        assert "No data available for [indicator] in [geography/year range]" in INVESTIGATION_SYSTEM_PROMPT
+        # Don't-capture directive must be a contiguous phrase tying "Do NOT" to key_stats_capture,
+        # so the test fails if the AC2 line is dropped (substring "key_stats_capture"/"Do NOT" alone
+        # also match the unrelated KEY STATS CAPTURE block and the AC4 block).
+        assert (
+            'Do NOT include that indicator\'s stats in update_investigation_item("key_stats_capture"'
+            in INVESTIGATION_SYSTEM_PROMPT
+        )
+        # Recovery sentence (AC2 third clause) must be present.
+        assert (
+            "Try a different time range or check another indicator from the search results"
+            in INVESTIGATION_SYSTEM_PROMPT
+        )
+
+    # ------------------------------------------------------------------
+    # AC4: API error copy distinct from zero-results in INVESTIGATION_SYSTEM_PROMPT
+    # ------------------------------------------------------------------
+
+    def test_investigation_prompt_distinguishes_api_error_from_no_data(self, reload_chat):
+        """AC4: INVESTIGATION_SYSTEM_PROMPT has both verbatim strings as separate directives."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        prompt = INVESTIGATION_SYSTEM_PROMPT
+        assert "The data service returned an error" in prompt
+        assert "No indicators found" in prompt
+        # Distinctness: the two failure modes must live under separate, ordered headers — not be
+        # merged into one directive. This catches a regression that lumps API errors with no-data.
+        zero_idx = prompt.index("Zero indicators found")
+        err_idx = prompt.index("API error response")
+        assert zero_idx < err_idx
+        # Each verbatim string sits under its own header.
+        assert zero_idx < prompt.index("No indicators found for [topic]") < err_idx
+        assert prompt.index("The data service returned an error") > err_idx
+
+    # ------------------------------------------------------------------
+    # AC3: empty-indicator rule in DOSSIER_SYSTEM_PROMPT
+    # ------------------------------------------------------------------
+
+    def test_dossier_prompt_forbids_empty_indicator_sections(self, reload_chat):
+        """AC3: DOSSIER_SYSTEM_PROMPT contains the empty-indicator avoidance rule and preserves 12.3 directives."""
+        from app.prompts import DOSSIER_SYSTEM_PROMPT
+
+        # New rule from 12.4
+        assert "empty data array" in DOSSIER_SYSTEM_PROMPT
+        assert "DO NOT insert" in DOSSIER_SYSTEM_PROMPT
+        # Regression guard: 12.3 inline-citation directive must still be present
+        assert "(<DATA_SOURCE>, <INDICATOR>, <year or year range>)" in DOSSIER_SYSTEM_PROMPT
+        assert "WB_WDI_EG_ELC_ACCS_ZS" in DOSSIER_SYSTEM_PROMPT
