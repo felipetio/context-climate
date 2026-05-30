@@ -5,6 +5,7 @@ Covers Story 5.3 (popular indicators) and Story 5.4 (offline search).
 
 import inspect
 import json
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -409,3 +410,128 @@ class TestSearchLocalIndicatorsTool:
         assert result["success"] is False
         assert result["error_type"] == "api_error"
         assert result["error"] == "boom"
+
+
+# ---------------------------------------------------------------------------
+# Story 5.5 — real-file integration, performance, and edge-case gap-fill tests
+# ---------------------------------------------------------------------------
+
+
+class TestRealDataFiles:
+    """AC3: validate the committed JSON files and real-file relevance scoring."""
+
+    def test_popular_indicators_file_integrity(self):
+        """AC3: popular_indicators.json has 25-30 indicators across the 7 documented categories."""
+        result = indicator_cache.get_popular_indicators()
+        indicators = result["indicators"]
+        assert 25 <= len(indicators) <= 30
+        for ind in indicators:
+            assert {"category", "code", "name", "description"} <= set(ind.keys())
+        categories = {ind["category"] for ind in indicators}
+        expected = {
+            "Climate & Environment",
+            "Energy",
+            "Demographics",
+            "Economy",
+            "Health",
+            "Infrastructure",
+            "Agriculture & Land Use",
+        }
+        assert categories == expected
+
+    def test_metadata_indicators_file_integrity(self):
+        """AC3: metadata_indicators.json has ≥1500 records with required keys and no duplicate codes."""
+        records = indicator_cache.get_metadata_indicators()
+        assert isinstance(records, list)
+        assert len(records) >= 1500
+        for rec in records:
+            assert {"code", "name", "description", "source"} <= set(rec.keys())
+        codes = [rec["code"] for rec in records]
+        assert len(codes) == len(set(codes))  # no duplicate codes — Story 5.2 dedupe regression guard
+
+    def test_real_file_exact_code_scores_100(self):
+        """AC3: SP_POP_TOTL resolves as top hit with relevance_score 100 from the real catalog."""
+        results = indicator_cache.search_local_metadata("SP_POP_TOTL")
+        assert results, "SP_POP_TOTL expected in the real metadata catalog"
+        assert results[0]["indicator"] == "SP_POP_TOTL"
+        assert results[0]["relevance_score"] == 100
+
+
+class TestOfflineSearchPerformance:
+    """AC4: NFR13 (<50ms warm) / NFR14 (<500ms cold) guardrails — generous CI-safe thresholds."""
+
+    def test_cold_load_under_budget(self):
+        """NFR14: first load of metadata_indicators.json completes under 1000ms CI-safe threshold."""
+        # _reset_cache has nulled the singleton; this call is the first (cold) load.
+        start = time.perf_counter()
+        indicator_cache.get_metadata_indicators()
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        assert elapsed_ms < 1000  # NFR14 target is 500ms; 2x margin for CI
+
+    def test_warm_search_under_budget(self):
+        """NFR13: warm search_local_metadata completes under 250ms CI-safe threshold."""
+        indicator_cache.get_metadata_indicators()  # warm the singleton first
+        start = time.perf_counter()
+        indicator_cache.search_local_metadata("CO2")
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        assert elapsed_ms < 250  # NFR13 target is 50ms; 5x margin for CI
+
+
+class TestEdgeCases:
+    """AC5: inputs not covered by the 5.3/5.4 happy-path tests."""
+
+    @pytest.fixture
+    def scoring_fixture(self, monkeypatch):
+        monkeypatch.setattr(indicator_cache, "_metadata_indicators", SCORING_FIXTURE)
+        return SCORING_FIXTURE
+
+    def test_unicode_query_matches_non_ascii_record(self, monkeypatch):
+        """AC5: non-ASCII query case-folds and matches a non-ASCII record without raising."""
+        fixture = [{"code": "C1", "name": "Població total", "description": "d", "source": "s"}]
+        monkeypatch.setattr(indicator_cache, "_metadata_indicators", fixture)
+        # Lowercase query vs title-case accented name — exercises .lower() over non-ASCII,
+        # not just the no-raise path. "població" must match "Població" (word-in-name, score 80).
+        results = indicator_cache.search_local_metadata("població")
+        assert isinstance(results, list)
+        assert [r["indicator"] for r in results] == ["C1"]
+
+    def test_very_long_query_returns_no_match(self, scoring_fixture):
+        """AC5: 2000-char query returns [] cleanly without raising."""
+        results = indicator_cache.search_local_metadata("x" * 2000)
+        assert results == []
+
+    def test_special_chars_treated_as_literal_not_regex(self, monkeypatch):
+        """AC5: regex metacharacters are treated as literal substrings, not patterns."""
+        fixture = [{"code": "C1", "name": "co2 emissions", "description": "d", "source": "s"}]
+        monkeypatch.setattr(indicator_cache, "_metadata_indicators", fixture)
+        # "co2.*" would match "co2 emissions" as a regex; as a literal it must NOT match.
+        assert indicator_cache.search_local_metadata("co2.*") == []
+
+    def test_plus_pattern_treated_as_literal(self, monkeypatch):
+        """AC5: '+' and other regex quantifiers are literal, not pattern operators."""
+        fixture = [
+            {"code": "C1", "name": "a+b emissions", "description": "d", "source": "s"},
+            {"code": "C2", "name": "aaab emissions", "description": "d", "source": "s"},
+        ]
+        monkeypatch.setattr(indicator_cache, "_metadata_indicators", fixture)
+        # As a regex, "a+b" (one-or-more 'a' then 'b') matches "aaab" but NOT the literal "a+b".
+        # A literal-substring implementation does the opposite: it matches only C1, never C2.
+        # Asserting exactly [C1] proves the search is literal, not a pattern match.
+        results = indicator_cache.search_local_metadata("a+b")
+        assert [r["indicator"] for r in results] == ["C1"]
+
+    def test_present_but_null_fields_do_not_raise(self, monkeypatch):
+        """AC5 / 5.4 hardening: a present-but-None field must not crash (None.lower()).
+
+        Regression guard for the ``(ind.get("k") or "")`` null-coalescing reads — a record
+        whose fields are explicitly None is skipped (score 0) without raising, while valid
+        records still resolve. This fails against the unguarded ``ind.get("k", "")`` form.
+        """
+        fixture = [
+            {"code": None, "name": None, "description": None, "source": None},
+            {"code": "SP_POP_TOTL", "name": "Population", "description": "People", "source": "WDI"},
+        ]
+        monkeypatch.setattr(indicator_cache, "_metadata_indicators", fixture)
+        results = indicator_cache.search_local_metadata("SP_POP_TOTL")
+        assert [r["indicator"] for r in results] == ["SP_POP_TOTL"]
+        assert results[0]["relevance_score"] == 100
