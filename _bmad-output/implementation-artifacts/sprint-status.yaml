@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-24
-last_updated: 2026-05-30  # epic-10 -> done (closed formally; all stories done/cancelled, 10-5 superseded by 10-6, retro optional). Prior: epic-11 -> done
+last_updated: 2026-05-30  # Epic 12 fully drafted (12.1-12.4 ready-for-dev), epic-12 -> in-progress. Prior: epic-10 -> done (closed formally)
 project: bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -151,11 +151,11 @@ development_status:
   epic-11-retrospective: optional
 
   # Epic 12: Data-Validated Investigation
-  epic-12: backlog
-  12-1-mcp-tools-in-dossier-session: backlog
-  12-2-data-validation-gate: backlog
-  12-3-citation-flow-into-dossier-sections: backlog
-  12-4-no-data-handling-in-investigation: backlog
+  epic-12: in-progress  # flipped 2026-05-30 (all 4 stories drafted ahead of dev)
+  12-1-mcp-tools-in-dossier-session: ready-for-dev  # drafted 2026-05-30; verification + test lock-in (no production code change)
+  12-2-data-validation-gate: ready-for-dev  # drafted 2026-05-30; gate via _data_validation_indicators_found flag + prompts
+  12-3-citation-flow-into-dossier-sections: ready-for-dev  # drafted 2026-05-30; depends on 12.2; reuses 9.1 citation pipeline
+  12-4-no-data-handling-in-investigation: ready-for-dev  # drafted 2026-05-30; depends on 12.2 + 12.3; prompt-only
   epic-12-retrospective: optional
 
   # Epic 13: Editorial Intelligence
