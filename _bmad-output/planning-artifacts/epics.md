@@ -1839,3 +1839,135 @@ So that readers get the headline findings before the detailed analysis.
 **When** the skeleton is generated
 **Then** the executive summary section contains a placeholder: "[Add key statistics here]"
 **And** the LLM prompts the journalist: "I need a few more data points to fill the executive summary. Want me to search for [suggested indicators]?"
+
+---
+
+## Epic 14: Dossier Preview & Export
+
+The dossier panel renders Markdown as formatted HTML (replacing the raw `<pre>` display), offers a Raw toggle to inspect the plain Markdown source, and allows the journalist to download the dossier as a `.md` file or a PDF directly from the sidebar — no chat attachment, no extra steps.
+
+**FRs covered:** FR-E14-1, FR-E14-2, FR-E14-3, FR-E14-4
+**NFRs addressed:** NFR-E14-1 (no new Node deps), NFR-E14-2 (server-side PDF), NFR-E14-3 (Content-Disposition attachment)
+**Implementation order:** After Epic 10 (Document.jsx and canvas infrastructure required)
+**Dependency:** Epic 10 — reuses `Document.jsx`, `update_dossier_content()`, and session state
+
+### Story 14.1: Markdown Rendering in the Dossier Panel
+
+As a journalist,
+I want the dossier panel to display formatted content instead of raw Markdown syntax,
+So that I can read the dossier naturally without seeing `##` and `**` characters.
+
+**Acceptance Criteria:**
+
+**Given** the dossier panel is in `"dossier"` phase
+**When** the Document component renders
+**Then** `props.html_content` (pre-rendered HTML from Python) is displayed using `dangerouslySetInnerHTML`
+**And** headings, bold, italics, lists, and blockquotes appear formatted
+**And** Tailwind `prose prose-sm max-w-none` classes apply to the rendered container
+
+**Given** `props.html_content` is absent or empty
+**When** the component renders
+**Then** it falls back to displaying `props.content` via `<pre className="whitespace-pre-wrap font-sans text-sm">`
+
+**Given** the Python `update_dossier_content(content)` helper is called
+**When** it updates the Document element
+**Then** it converts `content` to HTML using the `markdown` Python package (with `tables` and `fenced_code` extensions)
+**And** stores it in `doc.props["html_content"]`
+**And** keeps `doc.props["content"]` as the raw Markdown string (source of truth for edits and downloads)
+
+**Implementation scope:**
+- `Document.jsx`: replace `<pre>` in view mode with `<div dangerouslySetInnerHTML={{__html: props.html_content ?? ""}} className="prose prose-sm max-w-none" />`
+- `app/chat.py`: update `update_dossier_content()` to compute and store `html_content` prop
+- `pyproject.toml`: `uv add markdown` (if not already present)
+
+### Story 14.2: Raw Markdown Toggle
+
+As a journalist,
+I want to switch between the rendered preview and the raw Markdown source,
+So that I can inspect or copy the exact Markdown syntax when needed.
+
+**Acceptance Criteria:**
+
+**Given** the dossier is in `"dossier"` phase and in Preview mode
+**When** the user clicks the "Raw" button
+**Then** the panel displays `props.content` in a read-only `<pre>` with `font-mono text-sm whitespace-pre-wrap`
+**And** the button label changes to "Preview"
+
+**Given** the panel is in Raw mode
+**When** the user clicks the "Preview" button
+**Then** the panel returns to the HTML-rendered view
+**And** the button label changes back to "Raw"
+
+**Given** the panel is in Raw mode
+**When** props.content updates from Python (new dossier content arrives)
+**Then** the raw view immediately reflects the updated content
+
+**Given** the user is in Edit mode (existing functionality)
+**When** they save and return to view mode
+**Then** the panel returns to Preview mode (not Raw mode)
+
+**Implementation scope:**
+- `Document.jsx`: add a `viewMode` state (`"preview"` | `"raw"`) alongside the existing `isEditing` state
+- Header toolbar: show `Raw` button when `viewMode === "preview"`, `Preview` button when `viewMode === "raw"`
+- No Python changes
+
+### Story 14.3: Download Dossier as Markdown File
+
+As a journalist,
+I want to download the dossier as a `.md` file directly from the sidebar,
+So that I can archive or continue editing it in any text editor.
+
+**Acceptance Criteria:**
+
+**Given** the dossier is in `"dossier"` phase
+**When** the user clicks the "⬇ MD" button in the Document toolbar
+**Then** the browser triggers a file download named `dossier.md`
+**And** the downloaded file contains the raw Markdown text from `props.content`
+**And** no chat message or attachment bubble appears
+
+**Given** the dossier content is updated (new `apply_ops` patch arrives)
+**When** the user clicks "⬇ MD" again
+**Then** the downloaded file contains the current (updated) content
+
+**Implementation scope:**
+- `Document.jsx`: add `⬇ MD` button to the toolbar
+- On click: `new Blob([content], {type: "text/markdown"})` → create temporary `<a download="dossier.md">` → `.click()` → `URL.revokeObjectURL()`
+- No Python changes
+
+### Story 14.4: Download Dossier as PDF
+
+As a journalist,
+I want to download the dossier as a PDF directly from the sidebar,
+So that I can share it with editors or sources without any formatting lost.
+
+**Acceptance Criteria:**
+
+**Given** the dossier is in `"dossier"` phase
+**When** the user clicks the "⬇ PDF" button
+**Then** the browser triggers a file download named `dossier.pdf`
+**And** the PDF renders the dossier with formatted headings, bold, lists, and blockquotes
+**And** no chat message or attachment bubble appears
+
+**Given** `props.pdf_data_url` is present (Python pre-generated the PDF)
+**When** the user clicks "⬇ PDF"
+**Then** the button uses `<a href={props.pdf_data_url} download="dossier.pdf">` for the download
+
+**Given** Python calls `update_dossier_content(content)`
+**When** the update is processed
+**Then** `weasyprint.HTML(string=html).write_pdf()` generates the PDF bytes
+**And** the bytes are base64-encoded as `data:application/pdf;base64,...`
+**And** stored in `doc.props["pdf_data_url"]`
+
+**Given** the dossier content changes (new patch applied)
+**When** `update_dossier_content()` is called again
+**Then** `pdf_data_url` is regenerated with the latest content
+
+**Given** PDF generation fails (e.g., weasyprint not installed)
+**When** the error is caught
+**Then** `pdf_data_url` is set to `None`, the "⬇ PDF" button is hidden, and a warning is logged — no crash
+
+**Implementation scope:**
+- `app/chat.py`: update `update_dossier_content()` to also generate `pdf_data_url` via `weasyprint`
+- `Document.jsx`: add `⬇ PDF` button; render as `<a href={pdfDataUrl} download="dossier.pdf">` when `props.pdf_data_url` is set, hidden otherwise
+- `pyproject.toml`: `uv add weasyprint`
+- System libs note: if containerized, `Dockerfile` needs `libpango-1.0-0 libcairo2 libgdk-pixbuf2.0-0`
