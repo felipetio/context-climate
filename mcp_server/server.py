@@ -7,7 +7,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from mcp_server import config
+from mcp_server import config, indicator_cache
 from mcp_server.data360_client import Data360Client
 
 logger = logging.getLogger(__name__)
@@ -244,6 +244,110 @@ async def get_disaggregation(
         }
     except Exception as exc:
         logger.error("get_disaggregation failed: %s", exc)
+        return {"success": False, "error": str(exc), "error_type": "api_error"}
+
+
+@mcp.tool()
+async def list_popular_indicators() -> dict[str, Any]:
+    """List curated popular climate and development indicators.
+
+    Returns a categorized list of ~25-30 commonly requested indicators
+    with codes, names, and descriptions. No API call required - instant results.
+
+    Returns:
+        dict with success, data (list of indicators grouped by category),
+        total_count, returned_count, truncated.
+    """
+    try:
+        result = indicator_cache.get_popular_indicators()
+        indicators = result["indicators"]
+
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for ind in indicators:
+            category = ind.get("category", "Uncategorized")
+            groups.setdefault(category, []).append(
+                {
+                    "code": ind.get("code", ""),
+                    "name": ind.get("name", ""),
+                    "description": ind.get("description", ""),
+                }
+            )
+
+        data = [{"category": category, "indicators": items} for category, items in groups.items()]
+        total = sum(len(g["indicators"]) for g in data)
+        return {
+            "success": True,
+            "data": data,
+            "total_count": total,
+            "returned_count": total,
+            "truncated": False,
+        }
+    except Exception as exc:
+        logger.error("list_popular_indicators failed: %s", exc)
+        return {"success": False, "error": str(exc), "error_type": "api_error"}
+
+
+@mcp.tool()
+async def search_local_indicators(
+    query: str,
+    limit: int = config.DATA360_LOCAL_SEARCH_LIMIT,
+) -> dict[str, Any]:
+    """Search indicator metadata offline using local cached data.
+
+    Performs instant substring matching against ~1500 indicator codes,
+    names, and descriptions. Results are ranked by relevance score.
+    Use this for fast discovery before calling search_indicators for
+    full API results.
+
+    Note: Results include indicator codes but NOT database IDs.
+    Call search_indicators to get the database_id needed for get_data.
+
+    Args:
+        query: Search term (case-insensitive). Matches against code, name, description.
+        limit: Maximum results to return (1-100, default 20).
+
+    Returns:
+        dict with success, query, total_matches, data (list with indicator,
+        name, description, source, relevance_score), note.
+    """
+    try:
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            limit = config.DATA360_LOCAL_SEARCH_LIMIT
+        limit = max(1, min(limit, 100))
+
+        if not query or not query.strip():
+            logger.info("search_local_indicators: empty query")
+            return {
+                "success": True,
+                "query": query,
+                "total_matches": 0,
+                "data": [],
+                "note": "No local matches found. Try search_indicators for API-based search.",
+            }
+
+        results = indicator_cache.search_local_metadata(query, limit=limit)
+
+        if not results:
+            logger.info("search_local_indicators: no matches for query=%r", query)
+            return {
+                "success": True,
+                "query": query,
+                "total_matches": 0,
+                "data": [],
+                "note": "No local matches found. Try search_indicators for API-based search.",
+            }
+
+        return {
+            "success": True,
+            "query": query,
+            "total_matches": len(results),
+            "data": results,
+            "note": "Local search - instant results from cached metadata",
+        }
+    except Exception as exc:
+        logger.error("search_local_indicators failed: %s", exc)
         return {"success": False, "error": str(exc), "error_type": "api_error"}
 
 

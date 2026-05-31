@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-24
-last_updated: 2026-05-30  # 12-4 -> done (code-reviewed; 2 test-hardening patches applied, 434 pass). Prior: 12-3 -> done
+last_updated: 2026-05-31  # story 5-5 -> done (code review: 1 decision resolved [the lost 5.4 null-coalesce hardening committed separately under fix(5-4)], 3 patches applied to test_indicator_cache.py [null-field regression guard verified to fail on unguarded HEAD; strengthened unicode + plus-pattern literal tests], 6 dismissed as intentional CI guardrails/regression couplings; 45 tests in file, 203/203 mcp_server pass; ruff clean). Earlier: story 5-5 -> review (44 tests pass: 9 new — TestRealDataFiles×3, TestOfflineSearchPerformance×2, TestEdgeCases×4; 202/202 mcp_server suite; ruff clean). Earlier: story 5-5 -> ready-for-dev (Offline Indicator Search Test Suite spec created; test-only story, audits 5.3/5.4 coverage + adds real-file/perf/edge-case tests). Earlier: story 5-4 -> done (code review: 2 patches applied [stale 1533->1516 record count in spec; null/non-string field null-coalesce hardening], 2 deferred, 12 dismissed; 193/193 mcp_server tests pass; ruff clean). Earlier: story 5-4 -> review (Tasks 1-5 complete; 54/54 Epic 5 tests pass; 193/193 mcp_server tests pass; ruff clean). Earlier: Epic 5 recovered from deleted gallant-pascal-526e2f worktree: epic-4 -> cancelled, epic-5 -> in-progress (5-1/5-2/5-3 done, 5-4 in-progress with implementation files restored; metadata_indicators.json regenerated, +dedupe). Earlier: Epic 12 fully drafted (12.1-12.4 ready-for-dev), epic-12 -> in-progress; epic-10 -> done (closed formally)
 project: bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -74,18 +74,24 @@ development_status:
   epic-3-retrospective: done
 
   # Epic 4: Fact-Check & Claim Verification
-  epic-4: backlog
-  4-1-claim-input-and-indicator-identification: backlog
-  4-2-verdict-generation-with-source-citations: backlog
+  # Cancelled 2026-05-30: superseded by the dossier pivot (Epics 10-13). The fact-check
+  # flow assumed a conversational query mode that on_message no longer runs. Not implemented.
+  epic-4: cancelled
+  4-1-claim-input-and-indicator-identification: cancelled
+  4-2-verdict-generation-with-source-citations: cancelled
   epic-4-retrospective: optional
 
   # Epic 5: Offline Local Indicator Discovery
-  epic-5: backlog
-  5-1-popular-indicators-data-file: backlog
-  5-2-metadata-indicators-data-file: backlog
-  5-3-list-popular-indicators-mcp-tool: backlog
-  5-4-search-local-indicators-mcp-tool: backlog
-  5-5-offline-indicator-search-test-suite: backlog
+  # RECOVERED 2026-05-30 from the deleted gallant-pascal-526e2f worktree. Stories
+  # 5-1, 5-2, 5-3 implementations were reviewed and approved before deletion (sit
+  # uncommitted in the worktree); 5-4 was in-progress (4 of 5 tasks complete).
+  # metadata_indicators.json must be regenerated via scripts/generate_metadata_indicators.py.
+  epic-5: in-progress
+  5-1-popular-indicators-data-file: done
+  5-2-metadata-indicators-data-file: done
+  5-3-list-popular-indicators-mcp-tool: done
+  5-4-search-local-indicators-mcp-tool: done
+  5-5-offline-indicator-search-test-suite: done
   epic-5-retrospective: optional
 
   # Epic 6: Temporal Coverage Check
