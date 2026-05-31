@@ -1,8 +1,10 @@
 """Unit tests for streaming Claude API integration and MCP tool use in app/chat.py."""
 
+import asyncio
 import contextlib
 import importlib
 import inspect
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1368,6 +1370,23 @@ async def _fake_streamablehttp_client(url, **kwargs):
     yield (MagicMock(), MagicMock(), lambda: None)
 
 
+@contextlib.asynccontextmanager
+async def _anyio_streamablehttp_client(url, **kwargs):
+    """Fake streamablehttp_client backed by a REAL anyio task group.
+
+    The real ``mcp.client.streamable_http.streamablehttp_client`` opens an
+    ``anyio`` task group internally; exiting that task group from a different
+    task than entered it is exactly what raised the noisy ``RuntimeError:
+    Attempted to exit cancel scope in a different task`` on every chat end. By
+    yielding from inside a real anyio cancel scope here, a clean teardown proves
+    the connection is opened and closed in the *same* task.
+    """
+    import anyio
+
+    async with anyio.create_task_group():
+        yield (MagicMock(), MagicMock(), lambda: None)
+
+
 class TestMcpAutoConnect:
     """Tests for MCP auto-connection on chat start."""
 
@@ -1401,6 +1420,13 @@ class TestMcpAutoConnect:
         assert len(stored.get("mcp_tools", [])) == 1
         assert stored["mcp_tools"][0]["name"] == "search_indicators"
         fake_session.initialize.assert_awaited_once()
+        # The connection is driven by a long-lived lifecycle task; both should be stored.
+        assert isinstance(stored.get("mcp_close_event"), asyncio.Event)
+        assert isinstance(stored.get("mcp_task"), asyncio.Task)
+
+        # Tear the lifecycle task down (in its own task) to avoid a pending-task warning.
+        await reload_chat._close_mcp_connection(stored.get("mcp_close_event"), stored.get("mcp_task"))
+        assert stored["mcp_task"].done()
 
     async def test_on_chat_start_auto_connect_failure_graceful(self, reload_chat):
         """If MCP auto-connect fails, chat start still completes without tools."""
@@ -1429,24 +1455,74 @@ class TestMcpAutoConnect:
         # Welcome message should still be sent
         msg_mock.send.assert_awaited_once()
 
-    async def test_on_chat_end_closes_exit_stack(self, reload_chat):
-        """on_chat_end should close the AsyncExitStack to clean up MCP connection."""
-        mock_stack = AsyncMock()
+    async def test_on_chat_end_signals_and_awaits_lifecycle_task(self, reload_chat):
+        """on_chat_end should signal the close event and await the lifecycle task.
+
+        Teardown happens inside the lifecycle task itself (not on_chat_end's task),
+        which is what keeps anyio's cross-task cancel-scope RuntimeError out of the logs.
+        """
+        close_event = asyncio.Event()
+
+        async def _lifecycle():
+            await close_event.wait()
+
+        task = asyncio.create_task(_lifecycle())
+        values = {"mcp_close_event": close_event, "mcp_task": task}
 
         with patch("app.chat.cl.user_session") as session_mock:
-            session_mock.get.return_value = mock_stack
+            session_mock.get.side_effect = lambda k, default=None: values.get(k, default)
 
             await reload_chat.on_chat_end()
 
-        mock_stack.aclose.assert_awaited_once()
+        assert close_event.is_set()
+        assert task.done()
 
-    async def test_on_chat_end_handles_no_stack(self, reload_chat):
-        """on_chat_end should handle gracefully when no exit stack exists."""
+    async def test_on_chat_end_handles_no_connection(self, reload_chat):
+        """on_chat_end should handle gracefully when no MCP connection exists."""
         with patch("app.chat.cl.user_session") as session_mock:
             session_mock.get.return_value = None
 
             # Should not raise
             await reload_chat.on_chat_end()
+
+    async def test_close_tears_down_real_anyio_scope_without_cross_task_error(self, reload_chat, caplog):
+        """Regression: closing the connection from a different task than it was opened in
+        must NOT raise anyio's cancel-scope RuntimeError.
+
+        The connection is backed by a real anyio task group (mirroring the real
+        streamablehttp_client). ``_open_mcp_connection`` enters it inside a dedicated
+        lifecycle task, and ``_close_mcp_connection`` — called here from a *different*
+        task — only signals/awaits that task, so the anyio scope is exited where it was
+        entered. Before the fix this teardown raised "Attempted to exit cancel scope in
+        a different task" on every chat end.
+
+        The lifecycle task swallows its own exceptions (and logs them), so we assert on
+        the captured log: a cross-task scope exit would surface as a logged warning.
+        """
+        fake_session = AsyncMock()
+        list_result = MagicMock()
+        list_result.tools = []
+        fake_session.list_tools = AsyncMock(return_value=list_result)
+        fake_session.initialize = AsyncMock()
+        fake_session.__aenter__ = AsyncMock(return_value=fake_session)
+        fake_session.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            caplog.at_level(logging.WARNING, logger="app.chat"),
+            patch("app.chat.streamablehttp_client", _anyio_streamablehttp_client),
+            patch("app.chat.ClientSession", return_value=fake_session),
+        ):
+            session, _tools, close_event, task = await reload_chat._open_mcp_connection()
+            assert session is fake_session
+            assert task is not None
+
+            # Called from the test's task — a different task than `task`.
+            await reload_chat._close_mcp_connection(close_event, task)
+
+        assert task.done()
+        assert task.exception() is None
+        # No teardown error of any kind was logged (anyio cancel-scope or otherwise).
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING], [r.getMessage() for r in caplog.records]
 
 
 class TestMultiTurnConversation:
@@ -1655,12 +1731,17 @@ class TestConversationResume:
             patch("app.chat.ClientSession", return_value=fake_session),
             patch("app.chat.cl.user_session") as session_mock,
         ):
+            # No pre-existing connection — the initial close is a no-op.
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
             session_mock.set.side_effect = lambda k, v: stored.update({k: v})
             await reload_chat.on_chat_resume(thread)
 
         assert stored.get("mcp_session") is fake_session
         assert len(stored.get("mcp_tools", [])) == 1
         assert stored["mcp_tools"][0]["name"] == "search_indicators"
+
+        # Tear the freshly-opened lifecycle task down to avoid a pending-task warning.
+        await reload_chat._close_mcp_connection(stored.get("mcp_close_event"), stored.get("mcp_task"))
 
     async def test_on_chat_resume_handles_mcp_failure_gracefully(self, reload_chat):
         """Test 5 (failure case): on_chat_resume handles MCP reconnect failure gracefully."""
@@ -1676,6 +1757,8 @@ class TestConversationResume:
             patch("app.chat.streamablehttp_client", failing_client),
             patch("app.chat.cl.user_session") as session_mock,
         ):
+            # No pre-existing connection — the initial close is a no-op.
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
             session_mock.set.side_effect = lambda k, v: stored.update({k: v})
             # Should not raise
             await reload_chat.on_chat_resume(thread)
@@ -1687,46 +1770,65 @@ class TestConversationResume:
         # MCP session should be None
         assert stored.get("mcp_session") is None
 
-    async def test_on_chat_resume_closes_existing_stack(self, reload_chat):
-        """Test 7: on_chat_resume acloses any existing AsyncExitStack before reconnecting."""
+    async def test_on_chat_resume_closes_existing_connection(self, reload_chat):
+        """Test 7: on_chat_resume closes any existing MCP connection before reconnecting."""
         thread = {"steps": []}
         stored = {}
 
-        existing_stack = AsyncMock()
-        existing_stack.aclose = AsyncMock()
+        existing_close = asyncio.Event()
+
+        async def _existing_lifecycle():
+            await existing_close.wait()
+
+        existing_task = asyncio.create_task(_existing_lifecycle())
+        existing = {"mcp_close_event": existing_close, "mcp_task": existing_task}
 
         with (
             patch("app.chat.streamablehttp_client", _fake_streamablehttp_client),
             patch("app.chat.ClientSession", return_value=AsyncMock()),
             patch("app.chat.cl.user_session") as session_mock,
         ):
-            session_mock.get.side_effect = lambda k, default=None: existing_stack if k == "mcp_exit_stack" else default
+            session_mock.get.side_effect = lambda k, default=None: existing.get(k, default)
             session_mock.set.side_effect = lambda k, v: stored.update({k: v})
             await reload_chat.on_chat_resume(thread)
 
-        existing_stack.aclose.assert_awaited_once()
+        # The pre-existing connection was signalled to close and its task finished.
+        assert existing_close.is_set()
+        assert existing_task.done()
 
-    async def test_on_chat_resume_handles_existing_stack_aclose_failure(self, reload_chat):
-        """Test 8: on_chat_resume continues normally even if existing stack.aclose() raises."""
+        # Tear the freshly-opened lifecycle task down to avoid a pending-task warning.
+        await reload_chat._close_mcp_connection(stored.get("mcp_close_event"), stored.get("mcp_task"))
+
+    async def test_on_chat_resume_handles_existing_close_failure(self, reload_chat):
+        """Test 8: on_chat_resume continues normally even if closing the existing connection raises."""
         thread = {"steps": [{"type": "user_message", "output": "Hi"}]}
         stored = {}
 
-        failing_stack = AsyncMock()
-        failing_stack.aclose = AsyncMock(side_effect=RuntimeError("already closed"))
+        existing_close = asyncio.Event()
+
+        async def _failing_lifecycle():
+            await existing_close.wait()
+            raise RuntimeError("already closed")
+
+        existing_task = asyncio.create_task(_failing_lifecycle())
+        existing = {"mcp_close_event": existing_close, "mcp_task": existing_task}
 
         with (
             patch("app.chat.streamablehttp_client", _fake_streamablehttp_client),
             patch("app.chat.ClientSession", return_value=AsyncMock()),
             patch("app.chat.cl.user_session") as session_mock,
         ):
-            session_mock.get.side_effect = lambda k, default=None: failing_stack if k == "mcp_exit_stack" else default
+            session_mock.get.side_effect = lambda k, default=None: existing.get(k, default)
             session_mock.set.side_effect = lambda k, v: stored.update({k: v})
-            # Must not raise despite aclose() failure
+            # Must not raise despite the existing connection failing to close
             await reload_chat.on_chat_resume(thread)
 
-        failing_stack.aclose.assert_awaited_once()
+        assert existing_close.is_set()
         history = stored.get("history", [])
         assert history[0] == {"role": "user", "content": "Hi"}
+
+        # Tear the freshly-opened lifecycle task down to avoid a pending-task warning.
+        await reload_chat._close_mcp_connection(stored.get("mcp_close_event"), stored.get("mcp_task"))
 
     async def test_on_chat_resume_restores_dossier_phase_when_propose_structure_seen(self, reload_chat):
         """Resume restores dossier phase and auto-reveals the canvas when

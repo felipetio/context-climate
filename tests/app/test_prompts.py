@@ -166,9 +166,12 @@ class TestDossierPrompts:
     """Story 10.4: Phase-aware system prompts for investigation and dossier modes."""
 
     def test_investigation_prompt_asks_one_question_at_a_time(self):
-        # Verbatim prompt phrasing is "one short question at a time"; AC7 substring relaxed
-        # to match the canonical text in Dev Notes.
-        assert "one short question at a time" in INVESTIGATION_SYSTEM_PROMPT
+        # AC7: when the assistant must ask the journalist anything, it asks a single
+        # focused question rather than bombarding them. PR #76 reworked the flow to
+        # infer items and minimize questions, replacing the old "one short question at
+        # a time" wording with "ask ONE/one focused question". The guarantee is
+        # preserved; assert the current canonical phrasing (case-insensitive).
+        assert "one focused question" in INVESTIGATION_SYSTEM_PROMPT.lower()
 
     def test_investigation_prompt_no_apply_ops(self):
         assert "apply_ops" not in INVESTIGATION_SYSTEM_PROMPT
