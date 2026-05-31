@@ -1,6 +1,6 @@
 # Story 12.3: Citation Flow into Dossier Sections
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -56,16 +56,16 @@ So that each fact is traceable to its source without manual bookkeeping.
 
 ### Task 1: Rewrite `DOSSIER_SYSTEM_PROMPT` DATA RULES + add Methodology-section rule (AC: 1, 3)
 
-- [ ] In `app/prompts.py` (currently lines 137-158), rewrite the `DATA RULES:` block to:
+- [x] In `app/prompts.py` (currently lines 137-158), rewrite the `DATA RULES:` block to:
   - Keep the existing "Use search_indicators and get_data to ground every factual claim in real data." sentence.
   - Replace the bare "Include the DATA_SOURCE value inline when inserting data facts." with a concrete worked example and a format spec — see AC1 for the verbatim shape.
   - Keep the existing "If data is not found for a claim, say so explicitly. Do not invent numbers." sentence — Story 12.4 may extend this.
-- [ ] Add a new bullet at the end of the `DOSSIER STRUCTURE:` block (currently `app/prompts.py:155-158`):
+- [x] Add a new bullet at the end of the `DOSSIER STRUCTURE:` block (currently `app/prompts.py:155-158`):
   - *"The `## Methodology and Sources` section is maintained automatically by the system from your tool calls. Do not edit it via apply_ops — your edits will be overwritten on the next round."*
 
 ### Task 2: Add `_sync_dossier_references_section` helper (AC: 2)
 
-- [ ] Add an async helper near `_handle_apply_ops` (around `app/chat.py:460-504`) — colocated with the other doc-mutation functions so reviewers see the same pattern:
+- [x] Add an async helper near `_handle_apply_ops` (around `app/chat.py:460-504`) — colocated with the other doc-mutation functions so reviewers see the same pattern:
 
   ```python
   _METHODOLOGY_HEADING = "## Methodology and Sources"
@@ -105,7 +105,7 @@ So that each fact is traceable to its source without manual bookkeeping.
 
 ### Task 3: Wire the helper into the round-finalisation block (AC: 2, 4)
 
-- [ ] In `_agentic_loop` at `app/chat.py:937-950`, modify the `if stop_reason != "tool_use":` block so that **after** the existing chat-side append (lines 940-948 unchanged) and **before** `return final_text`, an in-dossier-phase sync runs:
+- [x] In `_agentic_loop` at `app/chat.py:937-950`, modify the `if stop_reason != "tool_use":` block so that **after** the existing chat-side append (lines 940-948 unchanged) and **before** `return final_text`, an in-dossier-phase sync runs:
 
   ```python
   # Story 12.3: also flow the same references into the dossier doc's
@@ -120,21 +120,21 @@ So that each fact is traceable to its source without manual bookkeeping.
       await _sync_dossier_references_section(doc, refs)
   ```
 
-- [ ] The block reuses `raw_refs` and `refs` from the chat-side build above — do NOT call `extract_references` / `deduplicate_references` a second time.
-- [ ] The walrus assignment `(doc := …) is not None` keeps the doc lookup inside the guard so it doesn't run when refs are empty or phase is investigating.
+- [x] The block reuses `raw_refs` and `refs` from the chat-side build above — do NOT call `extract_references` / `deduplicate_references` a second time.
+- [x] The walrus assignment `(doc := …) is not None` keeps the doc lookup inside the guard so it doesn't run when refs are empty or phase is investigating.
 
 ### Task 4: Tests (AC: 1, 2, 3, 4, 5)
 
-- [ ] Add a new test class `TestCitationFlowIntoDossierSections` to `tests/app/test_chat.py`, near `TestApplyOps…` and `TestProposeStructureTool`. Use `@pytest.mark.usefixtures("set_required_env_vars")` and the `reload_chat` fixture.
+- [x] Add a new test class `TestCitationFlowIntoDossierSections` to `tests/app/test_chat.py`, near `TestApplyOps…` and `TestProposeStructureTool`. Use `@pytest.mark.usefixtures("set_required_env_vars")` and the `reload_chat` fixture.
 
-- [ ] **AC1 (prompt directive)** — `test_dossier_prompt_directs_inline_citation_with_example`:
+- [x] **AC1 (prompt directive)** — `test_dossier_prompt_directs_inline_citation_with_example`:
   - `from app.prompts import DOSSIER_SYSTEM_PROMPT` via `reload_chat`.
   - Assert the string contains: `"DATA_SOURCE"`, the format spec `"(<DATA_SOURCE>, <INDICATOR>, <year or year range>)"`, and a recognisable fragment of the worked example (e.g., `"WB_WDI_EG_ELC_ACCS_ZS"` or `"129 municipalities"` — pick something distinctive enough to anchor the test).
 
-- [ ] **AC3 (prompt rule on Methodology section)** — `test_dossier_prompt_warns_against_editing_methodology_section`:
+- [x] **AC3 (prompt rule on Methodology section)** — `test_dossier_prompt_warns_against_editing_methodology_section`:
   - Assert the prompt contains the phrases `"Methodology and Sources"` and `"automatically"` and `"apply_ops"` — three substrings together so a rewording can't drift the test silently.
 
-- [ ] **AC2 (helper replaces existing section)** — `test_sync_dossier_references_replaces_existing_methodology_section`:
+- [x] **AC2 (helper replaces existing section)** — `test_sync_dossier_references_replaces_existing_methodology_section`:
   - Build a fake doc with `props = {"content": "# Exec\n\n[stuff]\n\n## Methodology and Sources\n\n[Document data sources and methodology here.]\n", "version": 1, "phase": "dossier"}` and `update = AsyncMock()`.
   - Call `await reload_chat._sync_dossier_references_section(doc, refs=[<one-ref dict>])` where the ref is shaped like `extract_references` outputs (see `app/citations.py:165-173`).
   - Assert `doc.props["content"]` starts with `"# Exec"`, ends with the freshly formatted references block, and contains exactly ONE `"## Methodology and Sources"` (no duplicates).
@@ -143,33 +143,48 @@ So that each fact is traceable to its source without manual bookkeeping.
   - Assert `doc.update` was awaited once.
   - Patch `_refresh_dossier_canvas` and assert it was awaited once.
 
-- [ ] **AC2 (helper appends when section absent)** — `test_sync_dossier_references_appends_section_when_heading_absent`:
+- [x] **AC2 (helper appends when section absent)** — `test_sync_dossier_references_appends_section_when_heading_absent`:
   - Same setup but `content = "# Exec\n\nNo methodology heading.\n"`.
   - After the call, assert `"## Methodology and Sources"` appears at the end of `doc.props["content"]` followed by the refs block.
 
-- [ ] **AC2 (no-op when content is unchanged)** — `test_sync_dossier_references_is_noop_when_content_unchanged`:
+- [x] **AC2 (no-op when content is unchanged)** — `test_sync_dossier_references_is_noop_when_content_unchanged`:
   - First call with `refs=[<ref>]` → bumps version to 2 and writes content.
   - Second call with the same `refs` → assert version stays at 2 and `doc.update.await_count == 1` (no second update).
 
-- [ ] **AC4 (round-finalisation skips sync when refs empty)** — `test_round_finalisation_skips_dossier_sync_when_no_refs`:
+- [x] **AC4 (round-finalisation skips sync when refs empty)** — `test_round_finalisation_skips_dossier_sync_when_no_refs`:
   - End-to-end through `on_message` with a single round that ends in `stop_reason="end_turn"` and `all_tool_outputs == []` (no tool calls).
   - Patch `_sync_dossier_references_section` (`new_callable=AsyncMock`) and assert it was NOT awaited.
 
-- [ ] **AC4 (round-finalisation skips sync in investigating phase)** — `test_round_finalisation_skips_dossier_sync_in_investigating_phase`:
+- [x] **AC4 (round-finalisation skips sync in investigating phase)** — `test_round_finalisation_skips_dossier_sync_in_investigating_phase`:
   - End-to-end with a search_indicators tool round whose result has refs; session phase is `investigating`.
   - Assert `_sync_dossier_references_section` was NOT awaited (phase guard).
   - Assert the chat-side `ref_block` WAS appended (existing behaviour preserved).
 
-- [ ] **AC2 (round-finalisation calls sync in dossier phase)** — `test_round_finalisation_calls_dossier_sync_in_dossier_phase`:
+- [x] **AC2 (round-finalisation calls sync in dossier phase)** — `test_round_finalisation_calls_dossier_sync_in_dossier_phase`:
   - End-to-end with a get_data tool round whose result has refs; session phase is `dossier`; `doc` is in session.
   - Assert `_sync_dossier_references_section` was awaited once with `(doc, refs)` where `refs` is the dedup'd list.
   - Assert the chat-side `ref_block` was ALSO appended (both code paths fire).
 
 ### Task 5: Lint, format, full test suite (AC: 5)
 
-- [ ] `uv run ruff check .`
-- [ ] `uv run ruff format --check .`
-- [ ] `uv run pytest -q`
+- [x] `uv run ruff check .`
+- [x] `uv run ruff format --check .`
+- [x] `uv run pytest -q`
+
+### Review Findings
+
+_`/bmad-code-review` (full mode) — 2026-05-30. Target: Story 12.3. Reviewed the uncommitted working-tree diff (`git diff HEAD`), which also bundles uncommitted Story 12.2 code; findings below are scoped to 12.3. Layers: Blind Hunter, Edge Case Hunter, Acceptance Auditor (all 5 ACs confirmed satisfied). Outcome: 1 decision-needed, 1 patch, 0 defer, 9 dismissed._
+
+**decision-needed (resolved):**
+
+- [x] [Review][Decision] `_sync_dossier_references_section` locates the section by substring `partition`, which is neither line-anchored nor section-bounded [app/chat.py:540-545] — (1) **Embedded/deeper-heading false match:** `if _METHODOLOGY_HEADING in content` + `content.partition(...)` match the string anywhere, so `### Methodology and Sources` or the phrase in prose/code-fence splits mid-line, leaving an orphaned `#` → corrupted output. (2) **Trailing-section destruction:** `partition` discards `_after`, deleting everything from the heading to EOF. **RESOLVED 2026-05-30 → Line-anchor only:** fix facet 1 (match the heading only at line-start), keep partition-to-EOF for facet 2 (the spec's documented, accepted tradeoff). Sources: blind+edge.
+
+**patch:**
+
+- [x] [Review][Patch] Line-anchor the `## Methodology and Sources` match in `_sync_dossier_references_section` [app/chat.py] — APPLIED 2026-05-30: added `import re` + module-level `_METHODOLOGY_HEADING_RE = re.compile(r"^## Methodology and Sources[ \t]*$", re.MULTILINE)`; helper now uses `_METHODOLOGY_HEADING_RE.search(content)` instead of substring `in`/`partition`. Deeper/embedded headings no longer false-match; replace-to-EOF semantics and the absent-heading append fallback preserved.
+- [x] [Review][Patch] Add regression test for `_sync_dossier_references_section` section-targeting [tests/app/test_chat.py] — APPLIED 2026-05-30: `test_sync_dossier_references_does_not_false_match_deeper_heading` asserts a `### Methodology and Sources` heading + body survive, no orphaned `#`, exactly one line-anchored H2 is appended. Suite: 430 pass, ruff check + format clean.
+
+_Dismissed (9): 12.2 truncation→validation-flag defect (already in `deferred-work.md` from 12.2 review); no-op-guard whitespace divergence (negligible — round-loop output is idempotent); empty-refs writes empty section (unreachable — sync is gated by `if raw_refs:` with non-empty dedup output, verified app/chat.py:1008-1024); non-str `doc.props["content"]` (defensive only — `ensure_dossier_doc` seeds `content=""`); `json.loads`/`int` except-clause asymmetry (non-defect); validation gate before state fallback (non-defect); weak no-session test (12.1 scope, already deferred); tautological prompt substring tests (by-design per spec); Auditor's nested-guard + double-`## References`-heading deviations (documented/intentional)._
 
 ---
 
@@ -390,22 +405,29 @@ Rules from `_bmad-output/project-context.md` most relevant to 12.3:
 
 ### Agent Model Used
 
-_To be filled by the dev agent._
+claude-sonnet-4-6
 
 ### Debug Log References
 
-_To be filled by the dev agent._
+No blockers. All 5 ACs satisfied on first pass.
 
 ### Completion Notes List
 
-_To be filled by the dev agent._
+- Task 1: Rewrote `DOSSIER_SYSTEM_PROMPT` DATA RULES block in `app/prompts.py` — replaced bare "include DATA_SOURCE" with format spec `(<DATA_SOURCE>, <INDICATOR>, <year or year range>)` plus worked example (WB_WDI_EG_ELC_ACCS_ZS, 129 municipalities). Added Methodology-section non-edit rule to DOSSIER STRUCTURE block.
+- Task 2: Added `_METHODOLOGY_HEADING` constant and `_sync_dossier_references_section` async helper to `app/chat.py` immediately after `_handle_apply_ops`. Uses `content.partition()` to replace heading-to-EOF; no-op guard prevents spurious version bumps.
+- Task 3: Wired helper into `_agentic_loop` round-finalisation block — reuses existing `raw_refs`/`refs` variables; condition guards on `isinstance(dossier_state, dict)`, `phase == "dossier"`, and `doc is not None`; walrus operator keeps the doc lookup inside the guard.
+- Task 4: 8 new tests in `TestCitationFlowIntoDossierSections` — all pass. Two prompt tests, three helper unit tests, three end-to-end round-finalisation tests.
+- Task 5: ruff check, ruff format --check, full suite — 429 tests pass.
 
 ### File List
 
-_To be filled by the dev agent._
+- `app/prompts.py` — Updated: DOSSIER_SYSTEM_PROMPT DATA RULES rewritten + Methodology rule added
+- `app/chat.py` — Updated: `_METHODOLOGY_HEADING` constant + `_sync_dossier_references_section` helper + round-finalisation dossier sync block
+- `tests/app/test_chat.py` — Updated: `TestCitationFlowIntoDossierSections` class with 8 tests; helpers `_make_api_ref`, `_make_get_data_mcp_result_with_citation`
 
 ### Change Log
 
 | Date | Notes |
 |---|---|
 | 2026-05-30 | Story created by `/bmad-create-story` (batch draft of Epic 12 stories 2-4). |
+| 2026-05-30 | Implemented by dev agent (claude-sonnet-4-6): prompt rewrite (AC1, AC3), `_sync_dossier_references_section` helper (AC2), round-finalisation wiring (AC2, AC4), 8 tests (AC5). 429 tests pass. |
