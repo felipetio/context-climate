@@ -42,7 +42,7 @@ So that I can inspect or copy the exact Markdown syntax when needed.
 
 - [x] App restarts cleanly with the updated JSX (no element load errors)
 - [x] AC3 (no stale render) holds by construction: raw branch renders live `props.content`, which re-renders on prop update; `viewMode` is never reset on content update
-- [ ] Consolidated visual verification (default preview; Raw↔Preview labels/content; Edit→View returns to Preview) — deferred to epic-end UI verification per review-at-epic-end plan
+- [x] Consolidated visual verification (live at felipet.io): default preview; "Raw" shows monospace raw Markdown + label flips to "Preview"; "Preview" restores HTML; Edit→View returns to Preview (AC4); Raw/Preview toggle hidden while editing
 
 ---
 

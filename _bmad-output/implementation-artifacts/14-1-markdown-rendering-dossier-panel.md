@@ -42,7 +42,7 @@ So that I can read the dossier naturally without seeing `##` and `**` characters
 
 - [x] Restart the app with `just restart chainlit` — boots cleanly, `markdown` import OK, MCP connected (9 tools), no errors in `.logs/app.log`
 - [x] Unit test added (`test_update_dossier_content_computes_html_from_markdown`) asserting `<h1>`/`<strong>` rendering and raw `##` absence; content preserved as raw Markdown
-- [ ] Consolidated visual verification (headings/bold/lists render; no raw `##`/`**`; `<pre>` fallback) — deferred to epic-end UI verification per review-at-epic-end plan
+- [x] Consolidated visual verification (live at felipet.io): headings/bold/italics/lists/blockquote and a Markdown table all render formatted; no raw `##`/`**` visible in preview
 
 ---
 

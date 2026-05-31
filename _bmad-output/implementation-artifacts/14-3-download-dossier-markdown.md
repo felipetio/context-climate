@@ -48,7 +48,7 @@ So that I can archive or continue editing it in any text editor.
 - [x] App restarts cleanly with the updated JSX
 - [x] AC2 (no chat bubble) holds by construction: download is fully client-side (Blob URL), never touches the Chainlit message/attachment system
 - [x] AC3 (updated content) holds by construction: handler reads live `content` (= `props.content`) at click time
-- [ ] Consolidated visual verification (download triggers `dossier.md` with raw Markdown; no chat bubble) — deferred to epic-end UI verification per review-at-epic-end plan
+- [x] Consolidated visual verification (live at felipet.io): clicking "⬇ MD" produces a `text/markdown` blob named `dossier.md` whose content is the exact raw Markdown (verified by intercepting the synthetic anchor); fully client-side → no chat bubble
 
 ---
 

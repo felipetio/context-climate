@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 export default function Document() {
-  const { content, version, phase, html_content } = props;
+  const { content, version, phase, html_content, pdf_data_url } = props;
   const [isEditing, setIsEditing] = useState(false);
   const [viewMode, setViewMode] = useState("preview");
   const [editContent, setEditContent] = useState(content ?? "");
@@ -95,6 +95,13 @@ export default function Document() {
           <Button size="sm" variant="outline" onClick={handleDownloadMd}>
             ⬇ MD
           </Button>
+          {pdf_data_url && (
+            <a href={pdf_data_url} download="dossier.pdf">
+              <Button size="sm" variant="outline">
+                ⬇ PDF
+              </Button>
+            </a>
+          )}
           <Button size="sm" variant="outline" onClick={toggleEdit}>
             {isEditing ? "View" : "Edit"}
           </Button>
