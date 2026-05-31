@@ -490,8 +490,15 @@ async def _handle_apply_ops(tool_input: dict) -> str:
     if doc is None:
         return "Error: dossier canvas is not open"
 
-    ops: list[dict] = tool_input.get("ops", [])
-    if not ops:
+    ops = tool_input.get("ops", [])
+    # Guard against double-encoded JSON: model sometimes passes ops as a JSON string
+    # instead of an array, causing "string indices must be integers" on op["type"].
+    if isinstance(ops, str):
+        try:
+            ops = json.loads(ops)
+        except (json.JSONDecodeError, TypeError):
+            return "Error: 'ops' could not be parsed — pass a JSON array, not a string"
+    if not ops or not isinstance(ops, list):
         return "Error: 'ops' must be a non-empty list"
 
     # Snapshot for rollback on partial failure — keeps doc.props and the
@@ -733,8 +740,11 @@ def _record_search_indicators_outcome(tool_name: str, tool_output: str) -> None:
     Called from the agentic loop right after _extract_tool_result_text. Cheap
     no-op for any other tool. JSON-parse failures are logged at debug and ignored
     (the loop must not crash on a malformed MCP payload).
+
+    Also fires for search_local_indicators (offline tool from Epic 5) which can
+    satisfy data_sources_validation when it finds matches.
     """
-    if tool_name != "search_indicators":
+    if tool_name not in ("search_indicators", "search_local_indicators"):
         return
     try:
         parsed = json.loads(tool_output)
@@ -743,13 +753,15 @@ def _record_search_indicators_outcome(tool_name: str, tool_output: str) -> None:
         return
     if not isinstance(parsed, dict) or not parsed.get("success"):
         return
+    # search_indicators uses total_count; search_local_indicators uses total_matches
+    count_raw = parsed.get("total_count") if tool_name == "search_indicators" else parsed.get("total_matches")
     try:
-        total_count = int(parsed.get("total_count", 0))
+        total_count = int(count_raw or 0)
     except (TypeError, ValueError):
         return
     if total_count >= 1:
         cl.user_session.set(_DATA_VALIDATION_FLAG, True)
-        logger.debug("[DATA_VALIDATION] search_indicators returned total_count=%d; flag set", total_count)
+        logger.debug("[DATA_VALIDATION] %s returned count=%d; flag set", tool_name, total_count)
 
 
 # ---------------------------------------------------------------------------
