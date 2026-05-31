@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -8,6 +9,7 @@ from typing import Any
 
 import anthropic
 import chainlit as cl
+import markdown
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
@@ -50,6 +52,18 @@ def auth_callback(username: str, password: str):
 
 
 logger = logging.getLogger(__name__)
+
+# Optional PDF export (Story 14.4). weasyprint needs system libs (pango/cairo);
+# if it (or they) are unavailable, degrade gracefully — the "⬇ PDF" button just
+# hides and the rest of the dossier keeps working.
+try:
+    from weasyprint import HTML as WeasyHTML
+
+    WEASYPRINT_AVAILABLE = True
+except Exception as exc:  # pragma: no cover - depends on system libs
+    WeasyHTML = None
+    WEASYPRINT_AVAILABLE = False
+    logger.warning("weasyprint unavailable; PDF export disabled: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -151,10 +165,53 @@ async def update_dossier_content(content: str) -> None:
     if doc is None:
         return
     doc.props["content"] = content
+    # html_content (Story 14.1) and pdf_data_url (Story 14.4) are derived display
+    # props. Raw Markdown in doc.props["content"] stays the source of truth for
+    # edits/downloads. Both are recomputed from content via _apply_derived_props.
+    await _apply_derived_props(doc, content)
     doc.props["version"] += 1
     doc.content = json.dumps(doc.props)  # re-sync: CustomElement.content is set only once
     await doc.update()
     await _refresh_dossier_canvas()
+
+
+async def _apply_derived_props(doc: cl.CustomElement, content: str, *, render_pdf: bool = True) -> None:
+    """Recompute the derived display props (``html_content``, ``pdf_data_url``) from
+    raw Markdown ``content`` and set them on ``doc.props``.
+
+    Centralizes the Story 14.1/14.4 derivation so every content-mutation path keeps
+    the rendered preview and PDF export in sync with ``doc.props["content"]``. Does
+    NOT bump version, re-serialize ``doc.content``, or refresh — the caller owns
+    that ordering (the props must be set BEFORE ``doc.content = json.dumps(...)``).
+
+    ``render_pdf=False`` skips the (~0.5s) PDF render and clears ``pdf_data_url`` —
+    used for intermediate streaming frames so the button hides mid-edit and the
+    per-frame payload stays small; the final frame renders the PDF.
+    """
+    html_content = markdown.markdown(content, extensions=["tables", "fenced_code"])
+    doc.props["html_content"] = html_content
+    doc.props["pdf_data_url"] = await _render_pdf_data_url(html_content) if render_pdf else None
+
+
+async def _render_pdf_data_url(html_content: str) -> str | None:
+    """Render dossier HTML to a base64 ``data:application/pdf`` URL, or None.
+
+    Returns None (so ``Document.jsx`` hides the PDF button) when weasyprint is
+    unavailable or rendering raises — PDF export is best-effort and must never
+    break the dossier update (Story 14.4 AC5). The render runs in a worker thread
+    so the synchronous, CPU-bound weasyprint call never blocks the event loop.
+    """
+    if not WEASYPRINT_AVAILABLE:
+        return None
+    try:
+        full_html = (
+            f"<html><body style='font-family:sans-serif;max-width:800px;margin:2cm auto'>{html_content}</body></html>"
+        )
+        pdf_bytes = await asyncio.to_thread(WeasyHTML(string=full_html).write_pdf)
+        return "data:application/pdf;base64," + base64.b64encode(pdf_bytes).decode()
+    except Exception as exc:
+        logger.warning("PDF generation failed; hiding PDF export: %s", exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -502,22 +559,33 @@ async def _handle_apply_ops(tool_input: dict) -> str:
         return "Error: 'ops' must be a non-empty list"
 
     # Snapshot for rollback on partial failure — keeps doc.props and the
-    # `dossier` session dict consistent if any op in the batch fails.
+    # `dossier` session dict consistent if any op in the batch fails. Includes the
+    # derived display props (html_content/pdf_data_url) so a mid-batch failure
+    # restores the rendered preview/PDF too, not just the raw content.
     original_content: str = doc.props.get("content", "")
     original_version: int = int(doc.props.get("version", 0))
+    original_html: str = doc.props.get("html_content", "")
+    original_pdf: str | None = doc.props.get("pdf_data_url")
     current_content = original_content
+    last_idx = len(ops) - 1
 
-    for op in ops:
+    for idx, op in enumerate(ops):
         new_content, err = apply_single_op(current_content, op)
         if err is not None:
             doc.props["content"] = original_content
             doc.props["version"] = original_version
+            doc.props["html_content"] = original_html
+            doc.props["pdf_data_url"] = original_pdf
             doc.content = json.dumps(doc.props)  # re-sync before update (CustomElement.content is set only once)
             await doc.update()
             await _refresh_dossier_canvas()
             return err
         current_content = new_content
         doc.props["content"] = current_content
+        # Refresh the formatted preview every op (cheap Markdown parse); render the
+        # PDF only on the final op so the export reflects the settled content
+        # without paying the ~0.5s render N times during streaming (Story 14.4 AC4).
+        await _apply_derived_props(doc, current_content, render_pdf=(idx == last_idx))
         doc.props["version"] = int(doc.props.get("version", 0)) + 1
         doc.content = json.dumps(doc.props)  # re-sync before update
         await doc.update()
@@ -565,6 +633,7 @@ async def _sync_dossier_references_section(doc: cl.CustomElement, refs: list[dic
     if new_content == content:
         return
     doc.props["content"] = new_content
+    await _apply_derived_props(doc, new_content)
     doc.props["version"] = int(doc.props.get("version", 0)) + 1
     doc.content = json.dumps(doc.props)
     await doc.update()

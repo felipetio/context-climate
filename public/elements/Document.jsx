@@ -3,10 +3,30 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 export default function Document() {
-  const { content, version, phase } = props;
+  const { content, version, phase, html_content, pdf_data_url } = props;
   const [isEditing, setIsEditing] = useState(false);
+  const [viewMode, setViewMode] = useState("preview");
   const [editContent, setEditContent] = useState(content ?? "");
   const debounceRef = useRef(null);
+
+  // Exiting Edit mode always returns to Preview, never Raw (Story 14.2 AC4).
+  const toggleEdit = () => {
+    if (isEditing) setViewMode("preview");
+    setIsEditing((v) => !v);
+  };
+
+  // Client-side download of the raw Markdown (Story 14.3). Uses a Blob + synthetic
+  // anchor click so it bypasses the Chainlit message/attachment system entirely
+  // (no chat bubble). Always downloads props.content, so it reflects current edits.
+  const handleDownloadMd = () => {
+    const blob = new Blob([content ?? ""], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "dossier.md";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   useEffect(() => {
     if (!isEditing) {
@@ -63,7 +83,26 @@ export default function Document() {
         <span className="title">Dossier</span>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <span className="v">v{version ?? 0}</span>
-          <Button size="sm" variant="outline" onClick={() => setIsEditing((v) => !v)}>
+          {!isEditing && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setViewMode((v) => (v === "preview" ? "raw" : "preview"))}
+            >
+              {viewMode === "preview" ? "Raw" : "Preview"}
+            </Button>
+          )}
+          <Button size="sm" variant="outline" onClick={handleDownloadMd}>
+            ⬇ MD
+          </Button>
+          {pdf_data_url && (
+            <a href={pdf_data_url} download="dossier.pdf">
+              <Button size="sm" variant="outline">
+                ⬇ PDF
+              </Button>
+            </a>
+          )}
+          <Button size="sm" variant="outline" onClick={toggleEdit}>
             {isEditing ? "View" : "Edit"}
           </Button>
         </div>
@@ -76,8 +115,12 @@ export default function Document() {
             onChange={handleChange}
             autoFocus
           />
+        ) : viewMode === "raw" ? (
+          <pre className="whitespace-pre-wrap font-mono text-sm">{content ?? ""}</pre>
+        ) : html_content ? (
+          <div dangerouslySetInnerHTML={{ __html: html_content }} className="prose prose-sm max-w-none" />
         ) : (
-          <pre className="prose prose-sm max-w-none whitespace-pre-wrap font-sans text-sm">{content ?? ""}</pre>
+          <pre className="whitespace-pre-wrap font-sans text-sm">{content ?? ""}</pre>
         )}
       </div>
     </Card>
