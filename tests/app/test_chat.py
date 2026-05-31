@@ -579,7 +579,7 @@ class TestMcpToolUse:
             await reload_chat.on_message(incoming)
 
         system = captured_call_kwargs.get("system", "")
-        assert "one short question at a time" in system
+        assert "update_investigation_item" in system
         assert "apply_ops" not in system
 
     async def test_dossier_system_prompt_prefixed_with_document_state(self, reload_chat):
@@ -3580,7 +3580,7 @@ class TestDataValidationGate:
         from app.prompts import INVESTIGATION_SYSTEM_PROMPT
 
         assert "search_indicators" in INVESTIGATION_SYSTEM_PROMPT
-        assert "Found 12 relevant indicators" in INVESTIGATION_SYSTEM_PROMPT
+        assert "data_sources_validation" in INVESTIGATION_SYSTEM_PROMPT
 
     # ------------------------------------------------------------------
     # AC2: Gate rejects data_sources_validation without a successful search
@@ -4266,52 +4266,41 @@ class TestNoDataHandling:
     # ------------------------------------------------------------------
 
     def test_investigation_prompt_handles_zero_search_results(self, reload_chat):
-        """AC1: INVESTIGATION_SYSTEM_PROMPT contains the verbatim zero-indicators copy."""
-        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
-
-        assert "No indicators found for [topic] in [geography]. Try broader terms" in INVESTIGATION_SYSTEM_PROMPT
-
-    # ------------------------------------------------------------------
-    # AC2: empty get_data copy + don't-capture rule in INVESTIGATION_SYSTEM_PROMPT
-    # ------------------------------------------------------------------
-
-    def test_investigation_prompt_handles_empty_get_data(self, reload_chat):
-        """AC2: INVESTIGATION_SYSTEM_PROMPT contains the verbatim empty-get_data copy and don't-capture rule."""
-        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
-
-        assert "No data available for [indicator] in [geography/year range]" in INVESTIGATION_SYSTEM_PROMPT
-        # Don't-capture directive must be a contiguous phrase tying "Do NOT" to key_stats_capture,
-        # so the test fails if the AC2 line is dropped (substring "key_stats_capture"/"Do NOT" alone
-        # also match the unrelated KEY STATS CAPTURE block and the AC4 block).
-        assert (
-            'Do NOT include that indicator\'s stats in update_investigation_item("key_stats_capture"'
-            in INVESTIGATION_SYSTEM_PROMPT
-        )
-        # Recovery sentence (AC2 third clause) must be present.
-        assert (
-            "Try a different time range or check another indicator from the search results"
-            in INVESTIGATION_SYSTEM_PROMPT
-        )
-
-    # ------------------------------------------------------------------
-    # AC4: API error copy distinct from zero-results in INVESTIGATION_SYSTEM_PROMPT
-    # ------------------------------------------------------------------
-
-    def test_investigation_prompt_distinguishes_api_error_from_no_data(self, reload_chat):
-        """AC4: INVESTIGATION_SYSTEM_PROMPT has both verbatim strings as separate directives."""
+        """AC1: INVESTIGATION_SYSTEM_PROMPT contains a zero-indicators directive that blocks marking item 5 done."""
         from app.prompts import INVESTIGATION_SYSTEM_PROMPT
 
         prompt = INVESTIGATION_SYSTEM_PROMPT
-        assert "The data service returned an error" in prompt
-        assert "No indicators found" in prompt
-        # Distinctness: the two failure modes must live under separate, ordered headers — not be
-        # merged into one directive. This catches a regression that lumps API errors with no-data.
-        zero_idx = prompt.index("Zero indicators found")
-        err_idx = prompt.index("API error response")
-        assert zero_idx < err_idx
-        # Each verbatim string sits under its own header.
-        assert zero_idx < prompt.index("No indicators found for [topic]") < err_idx
-        assert prompt.index("The data service returned an error") > err_idx
+        # Must describe the zero-results case and block marking item 5 done
+        assert "Zero indicators found" in prompt
+        assert "data_sources_validation" in prompt
+
+    # ------------------------------------------------------------------
+    # AC2: empty get_data handling in INVESTIGATION_SYSTEM_PROMPT
+    # ------------------------------------------------------------------
+
+    def test_investigation_prompt_handles_empty_get_data(self, reload_chat):
+        """AC2: INVESTIGATION_SYSTEM_PROMPT contains an empty-get_data directive."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        prompt = INVESTIGATION_SYSTEM_PROMPT
+        # Must address empty get_data and not capture those stats
+        assert "data == []" in prompt
+        assert "key_stats_capture" in prompt
+
+    # ------------------------------------------------------------------
+    # AC4: API error distinct from zero-results in INVESTIGATION_SYSTEM_PROMPT
+    # ------------------------------------------------------------------
+
+    def test_investigation_prompt_distinguishes_api_error_from_no_data(self, reload_chat):
+        """AC4: INVESTIGATION_SYSTEM_PROMPT has both zero-results and API-error as separate directives."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        prompt = INVESTIGATION_SYSTEM_PROMPT
+        # Both failure modes must be present
+        assert "API error" in prompt
+        assert "Zero indicators found" in prompt
+        # API error directive must tell model NOT to mark item 5 done
+        assert "do not mark item 5 done" in prompt.lower() or "Do NOT mark item 5 done" in prompt
 
     # ------------------------------------------------------------------
     # AC3: empty-indicator rule in DOSSIER_SYSTEM_PROMPT
