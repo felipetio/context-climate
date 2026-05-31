@@ -2360,7 +2360,13 @@ class TestPhaseGateLogic:
         state = reload_chat._empty_investigation_state()
         for k in ("topic_definition", "geography_scope", "time_range", "target_audience"):
             state[k] = {"done": True, "value": "set"}
-        store = {"investigation": state, "dossier": {"phase": "investigating"}}
+        # _data_validation_indicators_found must be True — the gate rejects without a
+        # prior successful search_indicators call (Story 12.2 AC2).
+        store = {
+            "investigation": state,
+            "dossier": {"phase": "investigating"},
+            "_data_validation_indicators_found": True,
+        }
         with patch("app.chat.cl.user_session") as session_mock:
             session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
             session_mock.set.side_effect = lambda k, v: store.update({k: v})
@@ -3206,6 +3212,270 @@ class TestProposeStructureTool:
 
 
 # ---------------------------------------------------------------------------
+# MCP Tools in Dossier Session (Story 12.1)
+# ---------------------------------------------------------------------------
+
+_EPIC_1_MCP_TOOLS = (
+    "search_indicators",
+    "get_data",
+    "get_metadata",
+    "list_indicators",
+    "get_disaggregation",
+)
+
+
+@pytest.mark.usefixtures("set_required_env_vars")
+class TestMcpToolsInDossierSession:
+    """Story 12.1: MCP tools available and dispatchable in investigating and dossier phases."""
+
+    async def test_all_mcp_tools_present_in_investigating_phase(self, reload_chat):
+        """AC1: all 5 MCP tools appear in combined_tools when phase is investigating."""
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(mcp_tools=tools, dossier={"phase": "investigating"}),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hello"
+            await reload_chat.on_message(incoming)
+
+        passed_names = [t["name"] for t in (captured_call_kwargs.get("tools") or [])]
+        assert set(_EPIC_1_MCP_TOOLS).issubset(set(passed_names))
+
+    async def test_all_mcp_tools_present_in_dossier_phase(self, reload_chat):
+        """AC1: all 5 MCP tools appear in combined_tools when phase is dossier; dossier tools also present."""
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "", "version": 0}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(mcp_tools=tools, dossier={"phase": "dossier"}, doc=doc_mock),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hello"
+            await reload_chat.on_message(incoming)
+
+        passed_names = [t["name"] for t in (captured_call_kwargs.get("tools") or [])]
+        assert set(_EPIC_1_MCP_TOOLS).issubset(set(passed_names))
+        assert "apply_ops" in passed_names
+        assert "propose_structure" in passed_names
+        assert "update_investigation_item" in passed_names
+
+    async def test_mcp_tool_call_in_investigating_phase_routes_via_mcp_session(self, reload_chat):
+        """AC2: MCP tool call routes through mcp_session.call_tool in investigating phase."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="search_indicators",
+            input={"query": "deforestation"},
+            id="toolu_si_01",
+        )
+        text_block = _make_fake_content_block("text", "Results found.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Results found."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+        captured_calls = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_calls.append(kwargs)
+            return stream_with_tool if call_count == 1 else stream_final
+
+        fake_mcp_result = MagicMock()
+        fake_mcp_result.isError = False
+        fake_text_content = MagicMock()
+        fake_text_content.text = "OK_MCP_RESULT"
+        fake_mcp_result.content = [fake_text_content]
+
+        mcp_session = AsyncMock()
+        mcp_session.call_tool = AsyncMock(return_value=fake_mcp_result)
+
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(
+                    mcp_session=mcp_session, mcp_tools=tools, dossier={"phase": "investigating"}
+                ),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            incoming = MagicMock()
+            incoming.content = "find deforestation data"
+            await reload_chat.on_message(incoming)
+
+        mcp_session.call_tool.assert_awaited_once_with("search_indicators", arguments={"query": "deforestation"})
+        assert len(captured_calls) == 2
+        tool_results = [
+            block
+            for message in captured_calls[1]["messages"]
+            if isinstance(message.get("content"), list)
+            for block in message["content"]
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        ]
+        assert any(
+            tr.get("content") == "OK_MCP_RESULT" and tr.get("tool_use_id") == "toolu_si_01" for tr in tool_results
+        )
+
+    async def test_mcp_tool_call_in_dossier_phase_routes_via_mcp_session(self, reload_chat):
+        """AC2: MCP tool call routes through mcp_session.call_tool in dossier phase."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="get_data",
+            input={"database_id": "WB_WDI", "indicator": "EN.ATM.CO2E.KT"},
+            id="toolu_gd_01",
+        )
+        text_block = _make_fake_content_block("text", "Data retrieved.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Data retrieved."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+        captured_calls = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_calls.append(kwargs)
+            return stream_with_tool if call_count == 1 else stream_final
+
+        fake_mcp_result = MagicMock()
+        fake_mcp_result.isError = False
+        fake_text_content = MagicMock()
+        fake_text_content.text = "OK_MCP_RESULT"
+        fake_mcp_result.content = [fake_text_content]
+
+        mcp_session = AsyncMock()
+        mcp_session.call_tool = AsyncMock(return_value=fake_mcp_result)
+
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "", "version": 0}
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(
+                    mcp_session=mcp_session, mcp_tools=tools, dossier={"phase": "dossier"}, doc=doc_mock
+                ),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            incoming = MagicMock()
+            incoming.content = "get CO2 data"
+            await reload_chat.on_message(incoming)
+
+        mcp_session.call_tool.assert_awaited_once_with(
+            "get_data", arguments={"database_id": "WB_WDI", "indicator": "EN.ATM.CO2E.KT"}
+        )
+        assert len(captured_calls) == 2
+        tool_results = [
+            block
+            for message in captured_calls[1]["messages"]
+            if isinstance(message.get("content"), list)
+            for block in message["content"]
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        ]
+        assert any(
+            tr.get("content") == "OK_MCP_RESULT" and tr.get("tool_use_id") == "toolu_gd_01" for tr in tool_results
+        )
+
+    async def test_mcp_tool_call_with_no_session_returns_error_string(self, reload_chat):
+        """AC3: when mcp_session is None, error string surfaces without crashing."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="search_indicators",
+            input={"query": "deforestation"},
+            id="toolu_si_02",
+        )
+        text_block = _make_fake_content_block("text", "Sorry, data unavailable.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(
+            tokens=["Sorry, data unavailable."], stop_reason="end_turn", content_blocks=[text_block]
+        )
+        call_count = 0
+        captured_calls = []
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            captured_calls.append(kwargs)
+            return stream_with_tool if call_count == 1 else stream_final
+
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(mcp_session=None, mcp_tools=tools),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            incoming = MagicMock()
+            incoming.content = "find deforestation data"
+            await reload_chat.on_message(incoming)
+
+        assert len(captured_calls) == 2
+        tool_results = [
+            block
+            for message in captured_calls[1]["messages"]
+            if isinstance(message.get("content"), list)
+            for block in message["content"]
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        ]
+        assert any(
+            "Error: MCP server is not connected" in (tr.get("content") or "")
+            and "search_indicators" in (tr.get("content") or "")
+            for tr in tool_results
+        )
+
+
+# ---------------------------------------------------------------------------
 # on_toggle_dossier (header toggle button)
 # ---------------------------------------------------------------------------
 
@@ -3295,3 +3565,765 @@ class TestToggleDossier:
             await reload_chat.on_toggle_dossier(action)
 
         reveal_mock.assert_awaited_once()
+
+
+@pytest.mark.usefixtures("set_required_env_vars")
+class TestDataValidationGate:
+    """Story 12.2: search_indicators gate, session flag, and prompt directives."""
+
+    # ------------------------------------------------------------------
+    # AC1: Prompt directs the LLM to call search_indicators at item 5
+    # ------------------------------------------------------------------
+
+    def test_investigation_prompt_directs_search_indicators_at_item_5(self, reload_chat):
+        """AC1: INVESTIGATION_SYSTEM_PROMPT explicitly directs search_indicators call at item 5."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        assert "search_indicators" in INVESTIGATION_SYSTEM_PROMPT
+        assert "Found 12 relevant indicators" in INVESTIGATION_SYSTEM_PROMPT
+
+    # ------------------------------------------------------------------
+    # AC2: Gate rejects data_sources_validation without a successful search
+    # ------------------------------------------------------------------
+
+    def test_data_sources_validation_rejected_without_search(self, reload_chat):
+        """AC2: update_investigation_item returns error when flag is False."""
+        store = {
+            "investigation": reload_chat._empty_investigation_state(),
+            "dossier": {"phase": "investigating"},
+            "_data_validation_indicators_found": False,
+        }
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set = MagicMock(side_effect=lambda k, v: store.update({k: v}))
+            result = reload_chat.update_investigation_item("data_sources_validation", "Found something")
+
+        assert "error" in result
+        assert "no indicators have been found" in result["error"]
+        # State must not have been mutated (set was never called with "investigation")
+        investigation_set_calls = [c for c in session_mock.set.call_args_list if c.args[0] == "investigation"]
+        assert investigation_set_calls == []
+
+    def test_data_sources_validation_accepted_with_search(self, reload_chat):
+        """AC2: update_investigation_item succeeds when flag is True."""
+        store = {
+            "investigation": reload_chat._empty_investigation_state(),
+            "dossier": {"phase": "investigating"},
+            "_data_validation_indicators_found": True,
+        }
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            result = reload_chat.update_investigation_item("data_sources_validation", "Found 12 indicators")
+
+        assert result.get("status") == "ok"
+        assert "phase_gate_reached" in result
+        # The item must actually be persisted as done — a regression that returned
+        # status:ok without writing item 5 back to state would otherwise pass.
+        assert store["investigation"]["data_sources_validation"] == {
+            "done": True,
+            "value": "Found 12 indicators",
+        }
+
+    # ------------------------------------------------------------------
+    # AC3: _record_search_indicators_outcome helper unit tests
+    # ------------------------------------------------------------------
+
+    def test_record_search_indicators_outcome_sets_flag_on_success(self, reload_chat):
+        """AC3: flag is set when search_indicators returns success=True and total_count>=1."""
+        import json as _json
+
+        tool_output = _json.dumps(
+            {"success": True, "total_count": 12, "returned_count": 12, "data": [{"x": 1}], "truncated": False}
+        )
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            reload_chat._record_search_indicators_outcome("search_indicators", tool_output)
+
+        session_mock.set.assert_called_once_with(reload_chat._DATA_VALIDATION_FLAG, True)
+
+    def test_record_search_indicators_outcome_does_not_set_flag_on_zero_count(self, reload_chat):
+        """AC3: flag is NOT set when total_count is 0."""
+        import json as _json
+
+        tool_output = _json.dumps(
+            {"success": True, "total_count": 0, "returned_count": 0, "data": [], "truncated": False}
+        )
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            reload_chat._record_search_indicators_outcome("search_indicators", tool_output)
+
+        flag = reload_chat._DATA_VALIDATION_FLAG
+        flag_set_calls = [c for c in session_mock.set.call_args_list if c.args == (flag, True)]
+        assert flag_set_calls == []
+
+    def test_record_search_indicators_outcome_does_not_set_flag_on_error_response(self, reload_chat):
+        """AC3: flag is NOT set when the response has success=False."""
+        import json as _json
+
+        tool_output = _json.dumps({"success": False, "error": "api_error", "error_type": "api_error"})
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            reload_chat._record_search_indicators_outcome("search_indicators", tool_output)
+
+        flag = reload_chat._DATA_VALIDATION_FLAG
+        flag_set_calls = [c for c in session_mock.set.call_args_list if c.args == (flag, True)]
+        assert flag_set_calls == []
+
+    def test_record_search_indicators_outcome_does_not_set_flag_on_missing_total_count(self, reload_chat):
+        """AC3: a success response missing total_count defaults to 0 and does NOT set the flag."""
+        import json as _json
+
+        tool_output = _json.dumps({"success": True, "returned_count": 3, "data": [{}, {}, {}], "truncated": False})
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            reload_chat._record_search_indicators_outcome("search_indicators", tool_output)
+
+        flag = reload_chat._DATA_VALIDATION_FLAG
+        flag_set_calls = [c for c in session_mock.set.call_args_list if c.args == (flag, True)]
+        assert flag_set_calls == []
+
+    def test_record_search_indicators_outcome_handles_non_coercible_total_count(self, reload_chat):
+        """AC3: a non-coercible total_count is swallowed (no raise) and does NOT set the flag."""
+        import json as _json
+
+        tool_output = _json.dumps({"success": True, "total_count": "not-a-number", "data": [{}], "truncated": False})
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            # Must not raise
+            reload_chat._record_search_indicators_outcome("search_indicators", tool_output)
+
+        flag = reload_chat._DATA_VALIDATION_FLAG
+        flag_set_calls = [c for c in session_mock.set.call_args_list if c.args == (flag, True)]
+        assert flag_set_calls == []
+
+    def test_record_search_indicators_outcome_is_noop_for_other_tools(self, reload_chat):
+        """AC3: tool-name guard makes the helper a no-op for non-search_indicators tools."""
+        import json as _json
+
+        tool_output = _json.dumps(
+            {"success": True, "total_count": 5, "returned_count": 5, "data": [{}], "truncated": False}
+        )
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            reload_chat._record_search_indicators_outcome("get_data", tool_output)
+
+        session_mock.set.assert_not_called()
+
+    def test_record_search_indicators_outcome_handles_non_json(self, reload_chat):
+        """AC3: non-JSON tool output does not raise — logs at debug and returns."""
+        with patch("app.chat.cl.user_session") as session_mock:
+            session_mock.set = MagicMock()
+            # Must not raise
+            reload_chat._record_search_indicators_outcome("search_indicators", "not JSON")
+
+        flag = reload_chat._DATA_VALIDATION_FLAG
+        flag_set_calls = [c for c in session_mock.set.call_args_list if c.args == (flag, True)]
+        assert flag_set_calls == []
+
+    async def test_dispatch_loop_calls_record_helper_after_mcp_call(self, reload_chat):
+        """AC3 e2e: the agentic loop sets the flag after a successful search_indicators MCP call."""
+        import json as _json
+
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="search_indicators",
+            input={"query": "water access", "country": "BRA"},
+            id="toolu_search_01",
+        )
+        text_block = _make_fake_content_block("text", "Found indicators.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Found indicators."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_with_tool if call_count == 1 else stream_final
+
+        fake_mcp_content = MagicMock()
+        fake_mcp_content.text = _json.dumps(
+            {"success": True, "total_count": 5, "returned_count": 5, "data": [{}], "truncated": False}
+        )
+        fake_mcp_result = MagicMock()
+        fake_mcp_result.isError = False
+        fake_mcp_result.content = [fake_mcp_content]
+
+        fake_mcp_session = AsyncMock()
+        fake_mcp_session.call_tool = AsyncMock(return_value=fake_mcp_result)
+
+        tools = [{"name": "search_indicators", "description": "Search", "input_schema": {"type": "object"}}]
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        store: dict = {
+            "history": [],
+            "mcp_session": fake_mcp_session,
+            "mcp_tools": tools,
+            "dossier": {"phase": "investigating"},
+            "investigation": reload_chat._empty_investigation_state(),
+            "_data_validation_indicators_found": False,
+        }
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            incoming = MagicMock()
+            incoming.content = "Find water access indicators for Brazil"
+            await reload_chat.on_message(incoming)
+
+        # The flag must have been set to True after the successful MCP call
+        assert store.get("_data_validation_indicators_found") is True
+
+    def test_join_tool_result_text_does_not_truncate_large_success(self, reload_chat):
+        """Regression: _join_tool_result_text returns the FULL text even when it exceeds
+        tool_result_max_chars, so the data-validation recorder can json.loads it.
+        (_extract_tool_result_text truncates; the recorder must not see truncated text.)"""
+        import json as _json
+
+        big_payload = _json.dumps(
+            {
+                "success": True,
+                "total_count": 12,
+                "returned_count": 4000,
+                "data": [{"INDICATOR": "EN.ATM.CO2E.PC", "val": i} for i in range(4000)],
+                "truncated": False,
+            }
+        )
+        assert len(big_payload) > reload_chat.settings.tool_result_max_chars
+        result = MagicMock()
+        result.isError = False
+        block = MagicMock()
+        block.text = big_payload
+        result.content = [block]
+
+        full = reload_chat._join_tool_result_text(result)
+        # Untruncated and still valid JSON.
+        assert full == big_payload
+        assert "[... truncated" not in full
+        assert _json.loads(full)["total_count"] == 12
+
+    async def test_dispatch_loop_sets_flag_for_large_search_result(self, reload_chat):
+        """Regression (12.2 deferred HIGH): a search_indicators result large enough to be
+        truncated by _extract_tool_result_text must STILL set the validation flag, so item 5
+        is markable and the phase gate is reachable. Before the fix, json.loads on the
+        truncated text raised → flag never set → deadlock."""
+        import json as _json
+
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="search_indicators",
+            input={"query": "water access", "country": "BRA"},
+            id="toolu_search_big",
+        )
+        text_block = _make_fake_content_block("text", "Found many indicators.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(
+            tokens=["Found many indicators."], stop_reason="end_turn", content_blocks=[text_block]
+        )
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_with_tool if call_count == 1 else stream_final
+
+        big_payload = _json.dumps(
+            {
+                "success": True,
+                "total_count": 12,
+                "returned_count": 4000,
+                "data": [{"INDICATOR": "EN.ATM.CO2E.PC", "val": i} for i in range(4000)],
+                "truncated": False,
+            }
+        )
+        assert len(big_payload) > reload_chat.settings.tool_result_max_chars
+        fake_mcp_content = MagicMock()
+        fake_mcp_content.text = big_payload
+        fake_mcp_result = MagicMock()
+        fake_mcp_result.isError = False
+        fake_mcp_result.content = [fake_mcp_content]
+
+        fake_mcp_session = AsyncMock()
+        fake_mcp_session.call_tool = AsyncMock(return_value=fake_mcp_result)
+
+        tools = [{"name": "search_indicators", "description": "Search", "input_schema": {"type": "object"}}]
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        store: dict = {
+            "history": [],
+            "mcp_session": fake_mcp_session,
+            "mcp_tools": tools,
+            "dossier": {"phase": "investigating"},
+            "investigation": reload_chat._empty_investigation_state(),
+            "_data_validation_indicators_found": False,
+        }
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+        ):
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            incoming = MagicMock()
+            incoming.content = "Find water access indicators for Brazil"
+            await reload_chat.on_message(incoming)
+
+        # Even though the result was truncated for the model, the flag is set from the
+        # un-truncated text.
+        assert store.get("_data_validation_indicators_found") is True
+
+    # ------------------------------------------------------------------
+    # AC4: Prompt directs key-stats capture via update_investigation_item
+    # ------------------------------------------------------------------
+
+    def test_investigation_prompt_directs_key_stats_capture(self, reload_chat):
+        """AC4: INVESTIGATION_SYSTEM_PROMPT directs get_data + update_investigation_item for key_stats_capture."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        assert "key_stats_capture" in INVESTIGATION_SYSTEM_PROMPT
+        assert "update_investigation_item" in INVESTIGATION_SYSTEM_PROMPT
+        assert "indicator_code" in INVESTIGATION_SYSTEM_PROMPT
+        assert "values_by_year" in INVESTIGATION_SYSTEM_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# Story 12.3 helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_api_ref(
+    source="World Development Indicators",
+    indicator_code="EG_ELC_ACCS_ZS",
+    indicator_name="Access to electricity",
+    database_id="WB_WDI",
+    years="2022",
+) -> dict:
+    """Build a minimal deduped API reference dict as output of deduplicate_references."""
+    return {
+        "id": 1,
+        "source": source,
+        "indicator_code": indicator_code,
+        "indicator_name": indicator_name,
+        "database_id": database_id,
+        "years": years,
+        "type": "api",
+    }
+
+
+def _make_get_data_mcp_result_with_citation() -> str:
+    """JSON string that extract_references will turn into one API ref."""
+    import json
+
+    return json.dumps(
+        {
+            "success": True,
+            "data": [
+                {
+                    "CITATION_SOURCE": "World Development Indicators",
+                    "INDICATOR": "WB_WDI_EG_ELC_ACCS_ZS",
+                    "DATABASE_ID": "WB_WDI",
+                    "TIME_PERIOD": "2022",
+                    "COMMENT_TS": "Access to electricity",
+                }
+            ],
+            "total_count": 1,
+            "returned_count": 1,
+            "truncated": False,
+        }
+    )
+
+
+@pytest.mark.usefixtures("set_required_env_vars")
+class TestCitationFlowIntoDossierSections:
+    """Story 12.3: Inline citation format, Methodology section sync, and round-finalisation wiring."""
+
+    # ------------------------------------------------------------------
+    # AC1: DOSSIER_SYSTEM_PROMPT directive with concrete worked example
+    # ------------------------------------------------------------------
+
+    def test_dossier_prompt_directs_inline_citation_with_example(self, reload_chat):
+        """AC1: DOSSIER_SYSTEM_PROMPT includes DATA_SOURCE directive, format spec, and a worked example."""
+        from app.prompts import DOSSIER_SYSTEM_PROMPT
+
+        assert "DATA_SOURCE" in DOSSIER_SYSTEM_PROMPT
+        assert "(<DATA_SOURCE>, <INDICATOR>, <year or year range>)" in DOSSIER_SYSTEM_PROMPT
+        # Distinctive fragment from the worked example
+        assert "WB_WDI_EG_ELC_ACCS_ZS" in DOSSIER_SYSTEM_PROMPT
+
+    # ------------------------------------------------------------------
+    # AC3: Methodology-section non-edit rule in the prompt
+    # ------------------------------------------------------------------
+
+    def test_dossier_prompt_warns_against_editing_methodology_section(self, reload_chat):
+        """AC3: DOSSIER_SYSTEM_PROMPT contains the three required phrases that make up the rule."""
+        from app.prompts import DOSSIER_SYSTEM_PROMPT
+
+        assert "Methodology and Sources" in DOSSIER_SYSTEM_PROMPT
+        assert "automatically" in DOSSIER_SYSTEM_PROMPT
+        assert "apply_ops" in DOSSIER_SYSTEM_PROMPT
+
+    # ------------------------------------------------------------------
+    # AC2: _sync_dossier_references_section helper — existing heading
+    # ------------------------------------------------------------------
+
+    async def test_sync_dossier_references_replaces_existing_methodology_section(self, reload_chat):
+        """AC2: helper replaces everything from the heading to EOF with the fresh refs block."""
+        import json as _json
+
+        stale_placeholder = "[Document data sources and methodology here.]\n"
+        doc = MagicMock()
+        doc.props = {
+            "content": f"# Exec\n\n[stuff]\n\n## Methodology and Sources\n\n{stale_placeholder}",
+            "version": 1,
+            "phase": "dossier",
+        }
+        doc.content = _json.dumps(doc.props)
+        doc.update = AsyncMock()
+        refs = [_make_api_ref()]
+
+        with patch("app.chat._refresh_dossier_canvas", new_callable=AsyncMock) as mock_refresh:
+            await reload_chat._sync_dossier_references_section(doc, refs)
+
+        # Content starts correctly, ends with refs block, has exactly one heading
+        assert doc.props["content"].startswith("# Exec")
+        assert doc.props["content"].count("## Methodology and Sources") == 1
+        assert "World Development Indicators" in doc.props["content"]
+        # Version bumped
+        assert doc.props["version"] == 2
+        # re-sync invariant
+        assert doc.content == _json.dumps(doc.props)
+        # update and refresh both awaited
+        doc.update.assert_awaited_once()
+        mock_refresh.assert_awaited_once()
+
+    # ------------------------------------------------------------------
+    # AC2: _sync_dossier_references_section helper — heading absent
+    # ------------------------------------------------------------------
+
+    async def test_sync_dossier_references_appends_section_when_heading_absent(self, reload_chat):
+        """AC2: when heading is absent, refs block is appended as a new section at the end."""
+        import json as _json
+
+        doc = MagicMock()
+        doc.props = {"content": "# Exec\n\nNo methodology heading.\n", "version": 1, "phase": "dossier"}
+        doc.content = _json.dumps(doc.props)
+        doc.update = AsyncMock()
+        refs = [_make_api_ref()]
+
+        with patch("app.chat._refresh_dossier_canvas", new_callable=AsyncMock):
+            await reload_chat._sync_dossier_references_section(doc, refs)
+
+        content = doc.props["content"]
+        assert "## Methodology and Sources" in content
+        # Heading appears at the end (no content after the refs block except whitespace)
+        heading_idx = content.index("## Methodology and Sources")
+        assert heading_idx > content.index("# Exec")
+        assert "World Development Indicators" in content[heading_idx:]
+
+    # ------------------------------------------------------------------
+    # AC2: _sync_dossier_references_section — no-op guard
+    # ------------------------------------------------------------------
+
+    async def test_sync_dossier_references_is_noop_when_content_unchanged(self, reload_chat):
+        """AC2: second call with same refs is a no-op — version and update count unchanged."""
+        import json as _json
+
+        doc = MagicMock()
+        doc.props = {
+            "content": "# Exec\n\n[stuff]\n\n## Methodology and Sources\n\n[stale placeholder]\n",
+            "version": 1,
+            "phase": "dossier",
+        }
+        doc.content = _json.dumps(doc.props)
+        doc.update = AsyncMock()
+        refs = [_make_api_ref()]
+
+        with patch("app.chat._refresh_dossier_canvas", new_callable=AsyncMock):
+            # First call — should write
+            await reload_chat._sync_dossier_references_section(doc, refs)
+            assert doc.props["version"] == 2
+            assert doc.update.await_count == 1
+
+            # Second call with identical refs — should be a no-op
+            await reload_chat._sync_dossier_references_section(doc, refs)
+
+        assert doc.props["version"] == 2
+        assert doc.update.await_count == 1  # no second update
+
+    # ------------------------------------------------------------------
+    # Code-review 2026-05-30: heading match must be line-anchored
+    # ------------------------------------------------------------------
+
+    async def test_sync_dossier_references_does_not_false_match_deeper_heading(self, reload_chat):
+        """Code-review 2026-05-30 (line-anchor patch): a deeper "### Methodology and Sources"
+        heading must NOT be consumed as the system-owned section. The H3 and its body survive
+        intact, no orphaned "#" is left from a mid-line split, and a single fresh H2 section
+        is appended at the end."""
+        import json as _json
+
+        doc = MagicMock()
+        doc.props = {
+            "content": "# Exec\n\n### Methodology and Sources\n\nJournalist's own notes.\n",
+            "version": 1,
+            "phase": "dossier",
+        }
+        doc.content = _json.dumps(doc.props)
+        doc.update = AsyncMock()
+        refs = [_make_api_ref()]
+
+        with patch("app.chat._refresh_dossier_canvas", new_callable=AsyncMock):
+            await reload_chat._sync_dossier_references_section(doc, refs)
+
+        content = doc.props["content"]
+        # The journalist's deeper heading and its body are untouched.
+        assert "### Methodology and Sources" in content
+        assert "Journalist's own notes." in content
+        # No orphaned "#" fragment from a mid-line substring split (the pre-patch partition bug).
+        assert "\n#\n" not in content
+        # Exactly one real, line-anchored H2 section — the freshly appended one.
+        assert len(reload_chat._METHODOLOGY_HEADING_RE.findall(content)) == 1
+        # The refs block lands after the journalist's notes (appended at the end).
+        assert content.index("World Development Indicators") > content.index("Journalist's own notes.")
+
+    # ------------------------------------------------------------------
+    # AC4: round-finalisation skips sync when no refs
+    # ------------------------------------------------------------------
+
+    async def test_round_finalisation_skips_dossier_sync_when_no_refs(self, reload_chat):
+        """AC4: when all_tool_outputs is empty (no tool calls), _sync_dossier_references_section is not called."""
+        msg_mock = _make_fake_cl_message()
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "# Exec\n\n## Methodology and Sources\n\n[placeholder]\n", "version": 1}
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(dossier={"phase": "dossier"}, doc=doc_mock),
+            ),
+            patch("app.chat.client.messages.stream", return_value=FakeStream(["Answer."], stop_reason="end_turn")),
+            patch("app.chat._sync_dossier_references_section", new_callable=AsyncMock) as mock_sync,
+        ):
+            incoming = MagicMock()
+            incoming.content = "Just a question, no data needed."
+            await reload_chat.on_message(incoming)
+
+        mock_sync.assert_not_awaited()
+
+    # ------------------------------------------------------------------
+    # AC4: round-finalisation skips sync in investigating phase
+    # ------------------------------------------------------------------
+
+    async def test_round_finalisation_skips_dossier_sync_in_investigating_phase(self, reload_chat):
+        """AC4: when in investigating phase, sync is not called even if refs exist; chat ref block fires."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="get_data",
+            input={"database_id": "WB_WDI", "indicator": "EG.ELC.ACCS.ZS"},
+            id="toolu_gd_inv",
+        )
+        text_block = _make_fake_content_block("text", "Here are the findings.")
+        stream_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        final_tokens = ["Here are the findings."]
+        stream_final = FakeStream(tokens=final_tokens, stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_tool if call_count == 1 else stream_final
+
+        fake_mcp = AsyncMock()
+        fake_mcp_result = MagicMock()
+        fake_mcp_result.isError = False
+        fake_text = MagicMock()
+        fake_text.text = _make_get_data_mcp_result_with_citation()
+        fake_mcp_result.content = [fake_text]
+        fake_mcp.call_tool = AsyncMock(return_value=fake_mcp_result)
+
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(
+                    mcp_session=fake_mcp, mcp_tools=tools, dossier={"phase": "investigating"}
+                ),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch("app.chat._sync_dossier_references_section", new_callable=AsyncMock) as mock_sync,
+        ):
+            incoming = MagicMock()
+            incoming.content = "What electricity data is available?"
+            await reload_chat.on_message(incoming)
+
+        # Dossier sync must NOT fire in investigating phase
+        mock_sync.assert_not_awaited()
+        # Chat-side ref block MUST fire (existing Story 9.1 behaviour preserved)
+        assert "World Development Indicators" in msg_mock.content
+
+    # ------------------------------------------------------------------
+    # AC2: round-finalisation calls sync in dossier phase
+    # ------------------------------------------------------------------
+
+    async def test_round_finalisation_calls_dossier_sync_in_dossier_phase(self, reload_chat):
+        """AC2: when in dossier phase with a doc and refs present, _sync_dossier_references_section is called."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="get_data",
+            input={"database_id": "WB_WDI", "indicator": "EG.ELC.ACCS.ZS"},
+            id="toolu_gd_dos",
+        )
+        text_block = _make_fake_content_block("text", "Data added to dossier.")
+        stream_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(
+            tokens=["Data added to dossier."], stop_reason="end_turn", content_blocks=[text_block]
+        )
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_tool if call_count == 1 else stream_final
+
+        fake_mcp = AsyncMock()
+        fake_mcp_result = MagicMock()
+        fake_mcp_result.isError = False
+        fake_text = MagicMock()
+        fake_text.text = _make_get_data_mcp_result_with_citation()
+        fake_mcp_result.content = [fake_text]
+        fake_mcp.call_tool = AsyncMock(return_value=fake_mcp_result)
+
+        tools = [{"name": n, "description": "x", "input_schema": {"type": "object"}} for n in _EPIC_1_MCP_TOOLS]
+        msg_mock = _make_fake_cl_message()
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "# Exec\n\n## Methodology and Sources\n\n[placeholder]\n", "version": 1}
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(
+                    mcp_session=fake_mcp, mcp_tools=tools, dossier={"phase": "dossier"}, doc=doc_mock
+                ),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch("app.chat._sync_dossier_references_section", new_callable=AsyncMock) as mock_sync,
+        ):
+            incoming = MagicMock()
+            incoming.content = "Add electricity data to the dossier."
+            await reload_chat.on_message(incoming)
+
+        # Sync must have been called exactly once with (doc_mock, refs)
+        mock_sync.assert_awaited_once()
+        call_args = mock_sync.call_args
+        assert call_args[0][0] is doc_mock
+        refs_arg = call_args[0][1]
+        assert len(refs_arg) == 1
+        assert refs_arg[0]["type"] == "api"
+        assert refs_arg[0]["source"] == "World Development Indicators"
+        # Chat-side ref block also fires
+        assert "World Development Indicators" in msg_mock.content
+
+
+@pytest.mark.usefixtures("set_required_env_vars")
+class TestNoDataHandling:
+    """Story 12.4: no-data and API-error narration directives in investigation and dossier prompts."""
+
+    # ------------------------------------------------------------------
+    # AC1: zero-indicator copy in INVESTIGATION_SYSTEM_PROMPT
+    # ------------------------------------------------------------------
+
+    def test_investigation_prompt_handles_zero_search_results(self, reload_chat):
+        """AC1: INVESTIGATION_SYSTEM_PROMPT contains the verbatim zero-indicators copy."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        assert "No indicators found for [topic] in [geography]. Try broader terms" in INVESTIGATION_SYSTEM_PROMPT
+
+    # ------------------------------------------------------------------
+    # AC2: empty get_data copy + don't-capture rule in INVESTIGATION_SYSTEM_PROMPT
+    # ------------------------------------------------------------------
+
+    def test_investigation_prompt_handles_empty_get_data(self, reload_chat):
+        """AC2: INVESTIGATION_SYSTEM_PROMPT contains the verbatim empty-get_data copy and don't-capture rule."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        assert "No data available for [indicator] in [geography/year range]" in INVESTIGATION_SYSTEM_PROMPT
+        # Don't-capture directive must be a contiguous phrase tying "Do NOT" to key_stats_capture,
+        # so the test fails if the AC2 line is dropped (substring "key_stats_capture"/"Do NOT" alone
+        # also match the unrelated KEY STATS CAPTURE block and the AC4 block).
+        assert (
+            'Do NOT include that indicator\'s stats in update_investigation_item("key_stats_capture"'
+            in INVESTIGATION_SYSTEM_PROMPT
+        )
+        # Recovery sentence (AC2 third clause) must be present.
+        assert (
+            "Try a different time range or check another indicator from the search results"
+            in INVESTIGATION_SYSTEM_PROMPT
+        )
+
+    # ------------------------------------------------------------------
+    # AC4: API error copy distinct from zero-results in INVESTIGATION_SYSTEM_PROMPT
+    # ------------------------------------------------------------------
+
+    def test_investigation_prompt_distinguishes_api_error_from_no_data(self, reload_chat):
+        """AC4: INVESTIGATION_SYSTEM_PROMPT has both verbatim strings as separate directives."""
+        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+
+        prompt = INVESTIGATION_SYSTEM_PROMPT
+        assert "The data service returned an error" in prompt
+        assert "No indicators found" in prompt
+        # Distinctness: the two failure modes must live under separate, ordered headers — not be
+        # merged into one directive. This catches a regression that lumps API errors with no-data.
+        zero_idx = prompt.index("Zero indicators found")
+        err_idx = prompt.index("API error response")
+        assert zero_idx < err_idx
+        # Each verbatim string sits under its own header.
+        assert zero_idx < prompt.index("No indicators found for [topic]") < err_idx
+        assert prompt.index("The data service returned an error") > err_idx
+
+    # ------------------------------------------------------------------
+    # AC3: empty-indicator rule in DOSSIER_SYSTEM_PROMPT
+    # ------------------------------------------------------------------
+
+    def test_dossier_prompt_forbids_empty_indicator_sections(self, reload_chat):
+        """AC3: DOSSIER_SYSTEM_PROMPT contains the empty-indicator avoidance rule and preserves 12.3 directives."""
+        from app.prompts import DOSSIER_SYSTEM_PROMPT
+
+        # New rule from 12.4
+        assert "empty data array" in DOSSIER_SYSTEM_PROMPT
+        assert "DO NOT insert" in DOSSIER_SYSTEM_PROMPT
+        # Regression guard: 12.3 inline-citation directive must still be present
+        assert "(<DATA_SOURCE>, <INDICATOR>, <year or year range>)" in DOSSIER_SYSTEM_PROMPT
+        assert "WB_WDI_EG_ELC_ACCS_ZS" in DOSSIER_SYSTEM_PROMPT

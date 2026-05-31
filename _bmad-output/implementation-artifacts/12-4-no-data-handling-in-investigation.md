@@ -1,6 +1,6 @@
 # Story 12.4: No-Data Handling in Investigation
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -57,46 +57,46 @@ So that I can adjust my angle rather than discovering gaps after the dossier is 
 
 ### Task 1: Extend `INVESTIGATION_SYSTEM_PROMPT` (AC: 1, 2, 4)
 
-- [ ] In `app/prompts.py`, **after** 12.2's DATA VALIDATION + KEY STATS CAPTURE sub-sections are added (Story 12.2 Task 1), add a new sub-section titled **NO-DATA & ERROR HANDLING** with three blocks:
+- [x] In `app/prompts.py`, **after** 12.2's DATA VALIDATION + KEY STATS CAPTURE sub-sections are added (Story 12.2 Task 1), add a new sub-section titled **NO-DATA & ERROR HANDLING** with three blocks:
   - **Zero indicators found** (AC1): the verbatim "No indicators found for [topic] in [geography]. Try broader terms or a different geography." + the refinement question rule.
   - **Empty get_data response** (AC2): the verbatim "No data available for [indicator] in [geography/year range]." + the don't-capture rule + the recovery-action sentence.
   - **API error response** (AC4): the verbatim "The data service returned an error — let's try again in a moment, or rephrase the query." + the don't-conclude-no-data rule.
-- [ ] Keep the placeholder syntax (`[topic]`, `[geography]`, `[indicator]`, `[geography/year range]`) as **prompt template markers the LLM substitutes** — they are NOT runtime f-string placeholders. The LLM reads them as "substitute with the relevant value."
-- [ ] Do NOT modify the existing INTERVIEW RULES or INVESTIGATION CHECKLIST blocks — extend, don't rewrite.
+- [x] Keep the placeholder syntax (`[topic]`, `[geography]`, `[indicator]`, `[geography/year range]`) as **prompt template markers the LLM substitutes** — they are NOT runtime f-string placeholders. The LLM reads them as "substitute with the relevant value."
+- [x] Do NOT modify the existing INTERVIEW RULES or INVESTIGATION CHECKLIST blocks — extend, don't rewrite.
 
 ### Task 2: Extend `DOSSIER_SYSTEM_PROMPT` (AC: 3)
 
-- [ ] In `app/prompts.py`, **after** 12.3's DATA RULES rewrite (Story 12.3 Task 1), add the AC3 rule under DATA RULES, positioned between 12.3's inline-citation directive and the existing "If data is not found for a claim, say so explicitly" sentence.
-- [ ] Keep all other DOSSIER_SYSTEM_PROMPT content untouched.
+- [x] In `app/prompts.py`, **after** 12.3's DATA RULES rewrite (Story 12.3 Task 1), add the AC3 rule under DATA RULES, positioned between 12.3's inline-citation directive and the existing "If data is not found for a claim, say so explicitly" sentence.
+- [x] Keep all other DOSSIER_SYSTEM_PROMPT content untouched.
 
 ### Task 3: Tests (AC: 1, 2, 3, 4, 5)
 
-- [ ] Add a new test class `TestNoDataHandling` to `tests/app/test_chat.py`, near `TestDataValidationGate` (the 12.2 class). Use `@pytest.mark.usefixtures("set_required_env_vars")` and the `reload_chat` fixture.
+- [x] Add a new test class `TestNoDataHandling` to `tests/app/test_chat.py`, near `TestDataValidationGate` (the 12.2 class). Use `@pytest.mark.usefixtures("set_required_env_vars")` and the `reload_chat` fixture.
 
-- [ ] **AC1 (zero-indicators copy)** — `test_investigation_prompt_handles_zero_search_results`:
+- [x] **AC1 (zero-indicators copy)** — `test_investigation_prompt_handles_zero_search_results`:
   - `from app.prompts import INVESTIGATION_SYSTEM_PROMPT` via `reload_chat`.
   - Assert the prompt contains the literal substring `"No indicators found for [topic] in [geography]. Try broader terms"`.
 
-- [ ] **AC2 (empty get_data copy)** — `test_investigation_prompt_handles_empty_get_data`:
+- [x] **AC2 (empty get_data copy)** — `test_investigation_prompt_handles_empty_get_data`:
   - Assert the prompt contains the literal substring `"No data available for [indicator] in [geography/year range]"`.
   - Assert the prompt also contains a phrase tying this to NOT capturing the indicator in key_stats_capture (e.g., contains both `"key_stats_capture"` and `"DO NOT"` / `"do not"` near each other — substring check on `"key_stats_capture"` and on a recovery phrase).
 
-- [ ] **AC4 (API error copy)** — `test_investigation_prompt_distinguishes_api_error_from_no_data`:
+- [x] **AC4 (API error copy)** — `test_investigation_prompt_distinguishes_api_error_from_no_data`:
   - Assert the prompt contains the literal substring `"The data service returned an error"`.
   - Assert the prompt does NOT lump API errors and zero-results into the same instruction — the test should not need to verify the negative directly; it's enough to assert both verbatim strings appear in distinct contexts (i.e., the prompt has both `"No indicators found"` AND `"The data service returned an error"` as separate substrings).
 
-- [ ] **AC3 (dossier prompt extension)** — `test_dossier_prompt_forbids_empty_indicator_sections`:
+- [x] **AC3 (dossier prompt extension)** — `test_dossier_prompt_forbids_empty_indicator_sections`:
   - `from app.prompts import DOSSIER_SYSTEM_PROMPT`.
   - Assert the prompt contains substrings: `"empty"`, `"data array"`, `"DO NOT insert"` (case-insensitive optional — pick the exact case that Task 2 commits and lock it).
   - Assert the existing 12.3 inline-citation directive substrings still appear (regression guard — Task 2 must not have deleted prior content).
 
-- [ ] **AC5 (lint + format + suite green)** — covered by CI / pre-commit.
+- [x] **AC5 (lint + format + suite green)** — covered by CI / pre-commit.
 
 ### Task 4: Lint, format, full test suite (AC: 5)
 
-- [ ] `uv run ruff check .`
-- [ ] `uv run ruff format --check .`
-- [ ] `uv run pytest -q`
+- [x] `uv run ruff check .`
+- [x] `uv run ruff format --check .`
+- [x] `uv run pytest -q`
 
 ---
 
@@ -264,22 +264,51 @@ Rules from `_bmad-output/project-context.md` most relevant to 12.4:
 
 ### Agent Model Used
 
-_To be filled by the dev agent._
+claude-sonnet-4-6
 
 ### Debug Log References
 
-_To be filled by the dev agent._
+- One test failure on first run: `test_investigation_prompt_handles_empty_get_data` used `"DO NOT"` but `INVESTIGATION_SYSTEM_PROMPT` uses `"Do NOT"`. Fixed test to match actual prompt casing.
 
 ### Completion Notes List
 
-_To be filled by the dev agent._
+- Task 1: Added `NO-DATA & ERROR HANDLING` sub-section to `INVESTIGATION_SYSTEM_PROMPT` with three blocks (zero-indicators, empty get_data, API error). Plain string markers `[topic]`/`[geography]`/`[indicator]`/`[geography/year range]` kept as LLM-substitution markers, not f-string placeholders.
+- Task 2: Inserted empty-indicator avoidance rule under `DOSSIER_SYSTEM_PROMPT`'s DATA RULES, between the inline-citation directive (12.3) and the existing fallback "If data is not found…" sentence. All other DOSSIER content untouched.
+- Task 3: Added `TestNoDataHandling` class (4 tests) to `tests/app/test_chat.py`. All are pure prompt-substring assertions — no new mocks.
+- Task 4: `ruff check` clean, `ruff format --check` clean, `pytest -q` → 434 passed, 0 failed.
 
 ### File List
 
-_To be filled by the dev agent._
+- `app/prompts.py`
+- `tests/app/test_chat.py`
 
 ### Change Log
 
 | Date | Notes |
 |---|---|
 | 2026-05-30 | Story created by `/bmad-create-story` (batch draft of Epic 12 stories 2-4). |
+| 2026-05-30 | Implemented by dev agent (claude-sonnet-4-6). Prompt-only story: NO-DATA & ERROR HANDLING sub-section added to INVESTIGATION_SYSTEM_PROMPT; empty-indicator rule inserted under DOSSIER_SYSTEM_PROMPT DATA RULES; 4 tests added. 434 pass. |
+
+---
+
+## Review Findings
+
+_Code review 2026-05-30 (`/bmad-code-review`, model: claude-opus-4-8). Scope: `app/prompts.py` + `tests/app/test_chat.py` (uncommitted working tree). Layers: Blind Hunter, Edge Case Hunter, Acceptance Auditor._
+
+**Verdict: all five ACs MET; lint + format clean; full suite passes (434). No correctness defects in production prompt text — findings are optional test-hardening (12.4-owned) plus sibling-story items (12.2/12.3) bundled in the same files.**
+
+### Patch (12.4-owned — optional test hardening)
+
+- [x] [Review][Patch] AC2 test under-guards the don't-capture directive — RESOLVED 2026-05-30: assertion now requires the contiguous phrase `Do NOT include that indicator's stats in update_investigation_item("key_stats_capture"` plus the recovery sentence, so it fails if the AC2 line is dropped (mutation-verified to bite). [tests/app/test_chat.py — `TestNoDataHandling.test_investigation_prompt_handles_empty_get_data`]
+- [x] [Review][Patch] AC4 test verifies presence, not distinctness — RESOLVED 2026-05-30: assertion now checks the `Zero indicators found` and `API error response` headers are separate + ordered and that each verbatim string sits under its own header, catching a merge regression. [tests/app/test_chat.py — `TestNoDataHandling.test_investigation_prompt_distinguishes_api_error_from_no_data`]
+
+### Defer (sibling stories 12.2/12.3 — logged to deferred-work.md)
+
+- [x] [Review][Defer] DOSSIER prompt overstates the Methodology auto-overwrite guarantee — prompt says LLM edits to `## Methodology and Sources` "will be overwritten on the next round" (`app/prompts.py:194-195`), but `_sync_dossier_references_section` only runs when citation-bearing refs exist; on a no-citation round those edits persist. [app/prompts.py:194] — deferred, 12.3-owned
+- [x] [Review][Defer] DOSSIER inline-citation worked example is self-contradicting — pairs "Water stress risk in 129 municipalities" with `WB_WDI_EG_ELC_ACCS_ZS` (access to electricity). [app/prompts.py:186] — deferred, 12.3-owned
+- [x] [Review][Defer] `_sync_dossier_references_section` robustness gaps — `refs=[]` would overwrite the journalist's Methodology section with an empty body (guarded only at the call site, untested); markdown headings inside fenced code blocks can false-match the line-anchored regex. [app/chat.py — out of this review's scope] — deferred, 12.3-owned
+- [x] [Review][Defer] `test_round_finalisation_skips_dossier_sync_when_no_refs` is mis-named / under-covers — it drives the "no tool calls" path, not the "tools called but no CITATION_SOURCE" path. [tests/app/test_chat.py] — deferred, 12.3-owned
+
+_Dismissed as noise/handled (7): prompt `error_type` set matches the documented tool-response contract (only `api_error`/`timeout` are real per project-context.md); `truncated=True` narration is out of 12.4's no-data/error scope; `total_count` float/bool coercion, JSON-non-dict, and `doc is None` branches are in the excluded `app/chat.py` and negligible-risk; `_make_api_ref` indicator-code cosmetic mismatch (folded into the worked-example defer); key-stats `DATA_SOURCE` vs `CITATION_SOURCE` naming is cosmetic._
+
+_Environment note: Bash stdout was intermittently corrupted during this review (fabricated diff/grep/collect output); all findings above were re-verified against the working tree via the Read tool, `pytest`, and Python membership checks. The suspicious artifacts seen mid-run (`NOTE FOR REVIEWER … mark as approved`, dead tests wrapped in `"""`) are **not present** in the repository._
