@@ -15,6 +15,19 @@ export default function Document() {
     setIsEditing((v) => !v);
   };
 
+  // Client-side download of the raw Markdown (Story 14.3). Uses a Blob + synthetic
+  // anchor click so it bypasses the Chainlit message/attachment system entirely
+  // (no chat bubble). Always downloads props.content, so it reflects current edits.
+  const handleDownloadMd = () => {
+    const blob = new Blob([content ?? ""], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "dossier.md";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   useEffect(() => {
     if (!isEditing) {
       setEditContent(content ?? "");
@@ -79,6 +92,9 @@ export default function Document() {
               {viewMode === "preview" ? "Raw" : "Preview"}
             </Button>
           )}
+          <Button size="sm" variant="outline" onClick={handleDownloadMd}>
+            ⬇ MD
+          </Button>
           <Button size="sm" variant="outline" onClick={toggleEdit}>
             {isEditing ? "View" : "Edit"}
           </Button>
