@@ -144,14 +144,14 @@ def update_investigation_item(item_id: str, value: Any) -> dict[str, Any]:
 
     items_done = sum(1 for v in state.values() if isinstance(v, dict) and v.get("done"))
     gate_reached = all(isinstance(state.get(k), dict) and bool(state[k].get("done")) for k in _PHASE_GATE_ITEMS)
+    # The phase no longer flips automatically when the interview items are complete.
+    # The journalist must explicitly authorize dossier construction, which the model
+    # signals via the `begin_dossier` tool (see `_handle_begin_dossier`). This keeps the
+    # guided interview intact instead of one-shotting the whole dossier from the first
+    # message. `phase_gate_reached` is now purely informational — it tells the model the
+    # interview is complete and it may OFFER to build.
     if gate_reached:
-        dossier = cl.user_session.get("dossier")
-        if not isinstance(dossier, dict):
-            logger.warning("[INVESTIGATION] phase_gate=reached but dossier key is not a dict — phase not flipped")
-        elif dossier.get("phase") != "dossier":
-            dossier["phase"] = "dossier"
-            cl.user_session.set("dossier", dossier)
-            logger.debug("[INVESTIGATION] phase_gate=reached, transitioning to dossier mode")
+        logger.debug("[INVESTIGATION] phase_gate=reached (interview complete); awaiting begin_dossier authorization")
     return {
         "status": "ok",
         "item": item_id,
@@ -407,6 +407,20 @@ UPDATE_INVESTIGATION_ITEM_TOOL: dict[str, Any] = {
 }
 
 
+BEGIN_DOSSIER_TOOL: dict[str, Any] = {
+    "name": "begin_dossier",
+    "description": (
+        "Switch from the interview into dossier-building mode. Call this EXACTLY ONCE, and ONLY "
+        "after the journalist has explicitly authorized building the dossier (e.g. they said "
+        '"yes", "go ahead", "build it"). Do NOT call it on your own initiative, and never before '
+        "the editorial angle, geography, timeframe, and audience have been recorded and the data "
+        "validated with search_indicators. After this call you gain access to propose_structure "
+        "and apply_ops."
+    ),
+    "input_schema": {"type": "object", "properties": {}, "required": []},
+}
+
+
 PROPOSE_STRUCTURE_TOOL: dict[str, Any] = {
     "name": "propose_structure",
     "description": (
@@ -638,6 +652,28 @@ async def _sync_dossier_references_section(doc: cl.CustomElement, refs: list[dic
     doc.content = json.dumps(doc.props)
     await doc.update()
     await _refresh_dossier_canvas()
+
+
+async def _handle_begin_dossier() -> str:
+    """Transition the session from the interview into dossier-building mode.
+
+    Flips the session dossier phase to ``"dossier"`` (which makes ``propose_structure``
+    and ``apply_ops`` available and switches the system prompt) and posts the one-click
+    "Open dossier" reveal affordance. Called only when the model invokes ``begin_dossier``
+    after the journalist has authorized building — never automatically from the phase gate.
+    """
+    dossier = cl.user_session.get("dossier")
+    if not isinstance(dossier, dict):
+        dossier = {"phase": "investigating", "content": "", "version": 0}
+    if dossier.get("phase") == "dossier":
+        return json.dumps({"status": "noop", "reason": "already in dossier phase"})
+    dossier["phase"] = "dossier"
+    cl.user_session.set("dossier", dossier)
+    # Make sure the doc exists so the canvas can be revealed and populated.
+    ensure_dossier_doc()
+    logger.debug("[INVESTIGATION] begin_dossier — transitioning to dossier mode")
+    await post_dossier_reveal_affordance()
+    return json.dumps({"status": "ok"})
 
 
 async def _handle_propose_structure(tool_input: dict) -> str:
@@ -1129,6 +1165,10 @@ async def _agentic_loop(
         if phase == "dossier":
             combined_tools.append(APPLY_OPS_TOOL)
             combined_tools.append(PROPOSE_STRUCTURE_TOOL)
+        else:
+            # Only meaningful during the interview — it is the journalist-authorized
+            # trigger that flips into dossier mode. Omitted in dossier phase.
+            combined_tools.append(BEGIN_DOSSIER_TOOL)
         return {
             "model": settings.claude_model,
             "max_tokens": settings.claude_max_tokens,
@@ -1139,6 +1179,12 @@ async def _agentic_loop(
     max_rounds = settings.max_tool_rounds
     tool_round = 0
     all_tool_outputs: list[str] = []
+    # Text the model emits in investigation tool-use rounds IS the user-facing interview
+    # question (it often accompanies an update_investigation_item / begin_dossier call).
+    # We carry it forward instead of discarding it, so a question is never lost when the
+    # model writes text and calls a tool in the same round. Empty for dossier-phase rounds,
+    # whose intermediate "thinking" text is intentionally hidden.
+    carried_tokens: list[str] = []
 
     while True:
         tool_round += 1
@@ -1162,7 +1208,7 @@ async def _agentic_loop(
         stop_reason = final_message.stop_reason
 
         if stop_reason != "tool_use":
-            final_text = "".join(tokens)
+            final_text = "".join(carried_tokens) + "".join(tokens)
 
             # Build deterministic Data Sources block from collected tool outputs (Story 9.1)
             raw_refs = extract_references(all_tool_outputs)
@@ -1186,9 +1232,16 @@ async def _agentic_loop(
 
             return final_text
 
-        # Reset the UI message for the next iteration so intermediate
-        # "thinking" text from tool-use rounds doesn't leak to the user.
-        msg.content = ""
+        # In dossier phase, reset the UI message for the next iteration so intermediate
+        # "thinking" text from tool-use rounds doesn't leak to the user. During the
+        # investigation interview, the text IS the user-facing question, so we keep it
+        # streamed in the UI and carry it into the final response instead of discarding it.
+        _dstate = cl.user_session.get("dossier")
+        _phase_now = _dstate.get("phase", "investigating") if isinstance(_dstate, dict) else "investigating"
+        if _phase_now == "dossier":
+            msg.content = ""
+        else:
+            carried_tokens.extend(tokens)
 
         # --- Handle tool_use blocks ---
         # Append assistant response (may contain both text and tool_use blocks)
@@ -1217,18 +1270,20 @@ async def _agentic_loop(
                         tool_output = f"Error applying ops: {exc}"
                 elif tool_name == "update_investigation_item":
                     try:
-                        _dossier_pre = cl.user_session.get("dossier") or {}
-                        _phase_before = _dossier_pre.get("phase", "investigating")
                         result = update_investigation_item(
                             tool_input.get("item_id", ""),
                             tool_input.get("value"),
                         )
                         tool_output = json.dumps(result)
-                        if result.get("phase_gate_reached") and _phase_before == "investigating":
-                            await post_dossier_reveal_affordance()
                     except Exception as exc:
                         logger.error("update_investigation_item failed: %s", exc)
                         tool_output = f"Error calling update_investigation_item: {exc}"
+                elif tool_name == "begin_dossier":
+                    try:
+                        tool_output = await _handle_begin_dossier()
+                    except Exception as exc:
+                        logger.error("begin_dossier failed: %s", exc)
+                        tool_output = f"Error calling begin_dossier: {exc}"
                 elif tool_name == "propose_structure":
                     try:
                         tool_output = await _handle_propose_structure(tool_input)
