@@ -1,6 +1,6 @@
 # Story 14.2: Raw Markdown Toggle
 
-Status: draft
+Status: ready-for-dev
 
 ## Story
 

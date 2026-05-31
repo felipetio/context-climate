@@ -1,6 +1,6 @@
 # Story 14.4: Download Dossier as PDF
 
-Status: draft
+Status: ready-for-dev
 
 ## Story
 
@@ -50,6 +50,7 @@ So that I can share it with editors or sources with formatting preserved.
       ```
     - Set `doc.props["pdf_data_url"] = pdf_data_url`
   - If not available: `doc.props["pdf_data_url"] = None`; log a warning
+- [ ] **CRITICAL — set `pdf_data_url` on `doc.props` BEFORE the existing `doc.content = json.dumps(doc.props)` line** (chat.py:155), same as `html_content` in Story 14.1. A prop added after that serialization line (or after `await doc.update()`) silently never reaches `Document.jsx`. Compute `html_content` first, then `pdf_data_url` from it, then the json re-sync, then `await doc.update()`.
 
 ### Task 3: Update `Document.jsx` (AC: #1, #2, #5)
 

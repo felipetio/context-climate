@@ -1,6 +1,6 @@
 # Story 14.3: Download Dossier as Markdown File
 
-Status: draft
+Status: ready-for-dev
 
 ## Story
 

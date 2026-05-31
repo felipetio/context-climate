@@ -1,6 +1,6 @@
 # Story 14.1: Markdown Rendering in the Dossier Panel
 
-Status: draft
+Status: ready-for-dev
 
 ## Story
 
@@ -31,7 +31,7 @@ So that I can read the dossier naturally without seeing `##` and `**` characters
 - [ ] Import `markdown` at the top of `app/chat.py`
 - [ ] In `update_dossier_content(content: str)`, compute `html_content = markdown.markdown(content, extensions=["tables", "fenced_code"])`
 - [ ] Set `doc.props["html_content"] = html_content` in addition to `doc.props["content"] = content`
-- [ ] Call `await doc.update()` as before
+- [ ] **CRITICAL — set `html_content` on `doc.props` BEFORE the existing `doc.content = json.dumps(doc.props)` line** (chat.py:155). That line is what serializes the props to the frontend; a prop added after it (or after `await doc.update()`) silently never reaches `Document.jsx`. The existing function order is: set props → `doc.content = json.dumps(doc.props)` → `await doc.update()` → `await _refresh_dossier_canvas()`.
 
 ### Task 3: Update `Document.jsx` view mode (AC: #1, #2)
 
@@ -66,6 +66,12 @@ So that I can read the dossier naturally without seeing `##` and `**` characters
 - `app/prompts.py`
 - `app/citations.py`
 - Any MCP server files
+
+### Current code state (verified against worktree)
+
+- `Document.jsx` view-mode line to replace (currently): `<pre className="prose prose-sm max-w-none whitespace-pre-wrap font-sans text-sm">{content ?? ""}</pre>`. It already carries the `prose prose-sm max-w-none` classes — move those onto the new `dangerouslySetInnerHTML` div, and keep the plain `whitespace-pre-wrap font-sans text-sm` `<pre>` for the fallback branch.
+- `Document.jsx` already destructures `phase` (`const { content, version, phase } = props;`) and early-returns when `phase === "investigating"`, so everything in the main return body is inherently dossier-phase only.
+- `update_dossier_content()` (chat.py:149-157) already does `doc.props["content"] = content` → `doc.props["version"] += 1` → `doc.content = json.dumps(doc.props)` → `await doc.update()` → `await _refresh_dossier_canvas()`.
 
 ### Key constraint
 
