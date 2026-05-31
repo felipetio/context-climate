@@ -2458,7 +2458,11 @@ class TestPhaseGateLogic:
         assert store["dossier"]["phase"] == "investigating"
 
     def test_gate_reached_when_all_five_items_done(self, reload_chat, caplog):
-        """AC2: completing the 5th gate item flips phase_gate_reached True, phase to dossier, emits debug log."""
+        """Completing the 5th gate item reports phase_gate_reached True but does NOT flip the phase.
+
+        The phase only flips on explicit journalist authorization via begin_dossier, so the
+        interview is preserved instead of one-shotting the dossier.
+        """
         state = reload_chat._empty_investigation_state()
         for k in ("topic_definition", "geography_scope", "time_range", "target_audience"):
             state[k] = {"done": True, "value": "set"}
@@ -2475,20 +2479,19 @@ class TestPhaseGateLogic:
             with caplog.at_level("DEBUG", logger="app.chat"):
                 result = reload_chat.update_investigation_item("data_sources_validation", "confirmed")
         assert result["phase_gate_reached"] is True
-        assert store["dossier"]["phase"] == "dossier"
-        assert any("phase_gate=reached, transitioning to dossier mode" in rec.message for rec in caplog.records)
+        # Phase must stay "investigating" — recording the items no longer transitions on its own.
+        assert store["dossier"]["phase"] == "investigating"
+        assert any("awaiting begin_dossier" in rec.message for rec in caplog.records)
 
-    def test_gate_idempotent_when_already_dossier(self, reload_chat, caplog):
-        """AC2 idempotent: re-calling a gate item already done keeps gate True, phase unchanged, log not re-emitted."""
-        store = {"investigation": self._all_gate_items_done(reload_chat), "dossier": {"phase": "dossier"}}
+    def test_gate_completion_never_flips_phase(self, reload_chat):
+        """Recording a gate item must never mutate the dossier phase to 'dossier'."""
+        store = {"investigation": self._all_gate_items_done(reload_chat), "dossier": {"phase": "investigating"}}
         with patch("app.chat.cl.user_session") as session_mock:
             session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
             session_mock.set.side_effect = lambda k, v: store.update({k: v})
-            with caplog.at_level("DEBUG", logger="app.chat"):
-                result = reload_chat.update_investigation_item("topic_definition", "re-confirmed")
+            result = reload_chat.update_investigation_item("topic_definition", "re-confirmed")
         assert result["phase_gate_reached"] is True
-        assert store["dossier"]["phase"] == "dossier"
-        assert not any("phase_gate=reached, transitioning to dossier mode" in rec.message for rec in caplog.records)
+        assert store["dossier"]["phase"] == "investigating"
 
     def test_gate_not_reached_with_non_gate_items_only(self, reload_chat):
         """AC1a: non-gate items never trigger the gate."""
@@ -2503,17 +2506,69 @@ class TestPhaseGateLogic:
         """AC5: update_investigation_item must remain a synchronous (non-coroutine) function."""
         assert not inspect.iscoroutinefunction(reload_chat.update_investigation_item)
 
-    async def test_dispatch_posts_affordance_on_gate_transition(self, reload_chat):
-        """AC3: dispatch awaits post_dossier_reveal_affordance exactly once on investigating→dossier transition."""
+    async def test_dispatch_posts_affordance_on_begin_dossier(self, reload_chat):
+        """begin_dossier flips the phase to 'dossier' and posts the reveal affordance exactly once."""
+        tool_block = _make_fake_content_block(
+            "tool_use",
+            name="begin_dossier",
+            input={},
+            id="toolu_begin_01",
+        )
+        text_block = _make_fake_content_block("text", "Building it now.")
+        stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
+        stream_final = FakeStream(tokens=["Building it now."], stop_reason="end_turn", content_blocks=[text_block])
+        call_count = 0
+
+        def fake_stream(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return stream_with_tool if call_count == 1 else stream_final
+
+        msg_mock = _make_fake_cl_message()
+        step_mock = AsyncMock()
+        step_mock.__aenter__ = AsyncMock(return_value=step_mock)
+        step_mock.__aexit__ = AsyncMock(return_value=False)
+        step_mock.input = ""
+        step_mock.output = ""
+
+        store = {
+            "history": [],
+            "mcp_session": None,
+            "mcp_tools": [],
+            "dossier": {"phase": "investigating", "content": "", "version": 0},
+            "doc": None,
+            "investigation": None,
+        }
+        session_mock = MagicMock()
+        session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+        session_mock.set.side_effect = lambda k, v: store.update({k: v})
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", session_mock),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+            patch("app.chat.cl.Step", return_value=step_mock),
+            patch("app.chat.ensure_dossier_doc"),
+            patch("app.chat.post_dossier_reveal_affordance", new_callable=AsyncMock) as mock_reveal,
+        ):
+            incoming = MagicMock()
+            incoming.content = "yes, build it"
+            await reload_chat.on_message(incoming)
+
+        mock_reveal.assert_awaited_once()
+        assert store["dossier"]["phase"] == "dossier"
+
+    async def test_dispatch_update_item_never_posts_affordance(self, reload_chat):
+        """update_investigation_item must NOT post the reveal affordance even when the gate is reached."""
         tool_block = _make_fake_content_block(
             "tool_use",
             name="update_investigation_item",
             input={"item_id": "data_sources_validation", "value": "confirmed"},
             id="toolu_gate_01",
         )
-        text_block = _make_fake_content_block("text", "Dossier ready.")
+        text_block = _make_fake_content_block("text", "Shall I build it?")
         stream_with_tool = FakeStream(tokens=[], stop_reason="tool_use", content_blocks=[tool_block])
-        stream_final = FakeStream(tokens=["Dossier ready."], stop_reason="end_turn", content_blocks=[text_block])
+        stream_final = FakeStream(tokens=["Shall I build it?"], stop_reason="end_turn", content_blocks=[text_block])
         call_count = 0
 
         def fake_stream(**kwargs):
@@ -2542,7 +2597,7 @@ class TestPhaseGateLogic:
             incoming.content = "all sources validated"
             await reload_chat.on_message(incoming)
 
-        mock_reveal.assert_awaited_once()
+        mock_reveal.assert_not_awaited()
 
     async def test_dispatch_no_affordance_when_already_dossier(self, reload_chat):
         """AC4: affordance not re-posted when phase was already dossier before the call."""
@@ -3392,6 +3447,89 @@ class TestProposeStructureTool:
         passed_names = [t["name"] for t in (captured_call_kwargs.get("tools") or [])]
         assert "propose_structure" not in passed_names
 
+    async def test_begin_dossier_registered_in_investigating_phase(self, reload_chat):
+        """begin_dossier is offered during the interview so the model can authorize the build."""
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch("app.chat.cl.user_session", _make_session_mock_with_history()),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hello"
+            await reload_chat.on_message(incoming)
+
+        passed_names = [t["name"] for t in (captured_call_kwargs.get("tools") or [])]
+        assert "begin_dossier" in passed_names
+
+    async def test_begin_dossier_not_registered_in_dossier_phase(self, reload_chat):
+        """begin_dossier is not offered once already in dossier phase."""
+        msg_mock = _make_fake_cl_message()
+        captured_call_kwargs = {}
+        doc_mock = MagicMock()
+        doc_mock.props = {"content": "", "version": 0}
+
+        def fake_stream(**kwargs):
+            captured_call_kwargs.update(kwargs)
+            return FakeStream(["OK"])
+
+        with (
+            patch("app.chat.cl.Message", return_value=msg_mock),
+            patch(
+                "app.chat.cl.user_session",
+                _make_session_mock_with_history(dossier={"phase": "dossier"}, doc=doc_mock),
+            ),
+            patch("app.chat.client.messages.stream", side_effect=fake_stream),
+        ):
+            incoming = MagicMock()
+            incoming.content = "hello"
+            await reload_chat.on_message(incoming)
+
+        passed_names = [t["name"] for t in (captured_call_kwargs.get("tools") or [])]
+        assert "begin_dossier" not in passed_names
+
+
+class TestBeginDossierHandler:
+    """begin_dossier flips the session into dossier phase only on explicit authorization."""
+
+    async def test_begin_dossier_flips_phase_and_reveals(self, reload_chat):
+        import json as _json
+
+        store = {"dossier": {"phase": "investigating", "content": "", "version": 0}}
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.ensure_dossier_doc"),
+            patch("app.chat.post_dossier_reveal_affordance", new_callable=AsyncMock) as mock_reveal,
+        ):
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            out = await reload_chat._handle_begin_dossier()
+        assert _json.loads(out)["status"] == "ok"
+        assert store["dossier"]["phase"] == "dossier"
+        mock_reveal.assert_awaited_once()
+
+    async def test_begin_dossier_noop_when_already_dossier(self, reload_chat):
+        import json as _json
+
+        store = {"dossier": {"phase": "dossier", "content": "", "version": 0}}
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.ensure_dossier_doc"),
+            patch("app.chat.post_dossier_reveal_affordance", new_callable=AsyncMock) as mock_reveal,
+        ):
+            session_mock.get.side_effect = lambda k, default=None: store.get(k, default)
+            session_mock.set.side_effect = lambda k, v: store.update({k: v})
+            out = await reload_chat._handle_begin_dossier()
+        assert _json.loads(out)["status"] == "noop"
+        assert store["dossier"]["phase"] == "dossier"
+        mock_reveal.assert_not_awaited()
+
 
 # ---------------------------------------------------------------------------
 # MCP Tools in Dossier Session (Story 12.1)
@@ -4075,14 +4213,16 @@ class TestDataValidationGate:
     # AC4: Prompt directs key-stats capture via update_investigation_item
     # ------------------------------------------------------------------
 
-    def test_investigation_prompt_directs_key_stats_capture(self, reload_chat):
-        """AC4: INVESTIGATION_SYSTEM_PROMPT directs get_data + update_investigation_item for key_stats_capture."""
-        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+    def test_dossier_prompt_directs_key_stats_capture(self, reload_chat):
+        """key_stats_capture is logged during dossier building (where get_data runs), not the interview."""
+        from app.prompts import DOSSIER_SYSTEM_PROMPT, INVESTIGATION_SYSTEM_PROMPT
 
-        assert "key_stats_capture" in INVESTIGATION_SYSTEM_PROMPT
-        assert "update_investigation_item" in INVESTIGATION_SYSTEM_PROMPT
-        assert "indicator_code" in INVESTIGATION_SYSTEM_PROMPT
-        assert "values_by_year" in INVESTIGATION_SYSTEM_PROMPT
+        assert "key_stats_capture" in DOSSIER_SYSTEM_PROMPT
+        assert "update_investigation_item" in DOSSIER_SYSTEM_PROMPT
+        assert "indicator_code" in DOSSIER_SYSTEM_PROMPT
+        assert "values_by_year" in DOSSIER_SYSTEM_PROMPT
+        # The interview no longer fetches data, so it must not direct key-stat capture.
+        assert "key_stats_capture" not in INVESTIGATION_SYSTEM_PROMPT
 
 
 # ---------------------------------------------------------------------------
@@ -4460,11 +4600,11 @@ class TestNoDataHandling:
     # AC2: empty get_data handling in INVESTIGATION_SYSTEM_PROMPT
     # ------------------------------------------------------------------
 
-    def test_investigation_prompt_handles_empty_get_data(self, reload_chat):
-        """AC2: INVESTIGATION_SYSTEM_PROMPT contains an empty-get_data directive."""
-        from app.prompts import INVESTIGATION_SYSTEM_PROMPT
+    def test_dossier_prompt_handles_empty_get_data(self, reload_chat):
+        """Empty-get_data handling lives in DOSSIER_SYSTEM_PROMPT, where get_data now runs."""
+        from app.prompts import DOSSIER_SYSTEM_PROMPT
 
-        prompt = INVESTIGATION_SYSTEM_PROMPT
+        prompt = DOSSIER_SYSTEM_PROMPT
         # Must address empty get_data and not capture those stats
         assert "data == []" in prompt
         assert "key_stats_capture" in prompt
