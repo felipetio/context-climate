@@ -744,10 +744,18 @@ async def _process_upload_element(element: cl.File) -> str | None:  # type: igno
         return f"ERROR: Upload processing failed for '{filename}': {msg}"
 
 
-# MCP session key used in cl.user_session
+# MCP session keys used in cl.user_session
 _MCP_SESSION_KEY = "mcp_session"
 _MCP_TOOLS_KEY = "mcp_tools"
-_MCP_EXIT_STACK_KEY = "mcp_exit_stack"
+# The MCP streamablehttp client must be opened AND closed in the same asyncio
+# task — anyio's cancel scope forbids exiting it from a different task. We drive
+# its lifecycle from a single long-lived task (see _open_mcp_connection): it
+# opens the connection, parks on a close event, and tears the connection down
+# in-task when signalled. We therefore store the close event and the task handle
+# (not the AsyncExitStack) so on_chat_end / on_chat_resume can signal shutdown
+# without ever touching the context manager from a foreign task.
+_MCP_CLOSE_EVENT_KEY = "mcp_close_event"
+_MCP_TASK_KEY = "mcp_task"
 _DATA_VALIDATION_FLAG = "_data_validation_indicators_found"
 
 
@@ -833,6 +841,78 @@ def _record_search_indicators_outcome(tool_name: str, tool_output: str) -> None:
         logger.debug("[DATA_VALIDATION] %s returned count=%d; flag set", tool_name, total_count)
 
 
+async def _open_mcp_connection() -> tuple[
+    ClientSession | None, list[dict[str, Any]], asyncio.Event | None, asyncio.Task | None
+]:
+    """Open an MCP connection inside a single, dedicated, long-lived task.
+
+    The streamablehttp client context is both entered and exited inside the
+    returned task, which satisfies anyio's rule that a cancel scope must be
+    exited in the same task it was entered. (The previous approach entered the
+    context in ``on_chat_start`` and closed it from ``on_chat_end`` — a different
+    task — which made anyio emit a noisy ``RuntimeError: Attempted to exit cancel
+    scope in a different task`` traceback on every chat end, even though the
+    error was caught for control flow.)
+
+    Returns ``(session, tools, close_event, task)``. On failure ``session`` is
+    ``None`` and ``tools`` is empty, so callers continue without MCP tools.
+    Signal ``close_event`` and await ``task`` via :func:`_close_mcp_connection`
+    to tear the connection down cleanly in its own task.
+    """
+    ready = asyncio.Event()
+    close_event = asyncio.Event()
+    holder: dict[str, Any] = {}
+
+    async def _lifecycle() -> None:
+        try:
+            async with AsyncExitStack() as stack:
+                read, write, _ = await stack.enter_async_context(streamablehttp_client(url=settings.mcp_server_url))
+                session = await stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
+                result = await session.list_tools()
+                holder["session"] = session
+                holder["tools"] = _mcp_tools_to_anthropic(result.tools)
+                ready.set()
+                # Keep the connection open until chat end signals close_event.
+                # Exiting this `async with` (here, in this task) tears down the
+                # streamablehttp client in the same task that entered it.
+                await close_event.wait()
+        except Exception:
+            logger.warning("MCP connection failed, continuing without tools", exc_info=True)
+        finally:
+            # Always unblock the opener below, even on early failure.
+            ready.set()
+
+    task = asyncio.create_task(_lifecycle())
+    await ready.wait()
+
+    session = holder.get("session")
+    if session is None:
+        # Connection never became ready; ensure the lifecycle task can finish.
+        close_event.set()
+        return None, [], None, None
+    return session, holder.get("tools", []), close_event, task
+
+
+async def _close_mcp_connection(close_event: asyncio.Event | None, task: asyncio.Task | None) -> None:
+    """Signal the MCP lifecycle task to tear down and wait for it to finish.
+
+    The teardown runs inside ``task`` itself, so awaiting it here never exits the
+    anyio cancel scope from a foreign task — this is what keeps the cancel-scope
+    RuntimeError out of the logs.
+    """
+    if task is None:
+        return
+    if close_event is not None:
+        close_event.set()
+    try:
+        await asyncio.wait_for(task, timeout=10.0)
+    except asyncio.TimeoutError:
+        logger.warning("Error closing MCP connection: lifecycle task did not finish within timeout")
+    except Exception:
+        logger.warning("Error closing MCP connection", exc_info=True)
+
+
 # ---------------------------------------------------------------------------
 # Chainlit handlers
 # ---------------------------------------------------------------------------
@@ -876,33 +956,26 @@ async def on_chat_resume(thread: dict) -> None:
     if is_dossier:
         await reveal_dossier_canvas()
 
-    # Close any existing MCP stack before reconnecting (prevents connection leaks)
-    existing_stack = cl.user_session.get(_MCP_EXIT_STACK_KEY)
-    if existing_stack:
-        try:
-            await existing_stack.aclose()
-        except Exception:
-            logger.warning("Failed to close existing MCP stack on resume", exc_info=True)
+    # Close any existing MCP connection before reconnecting (prevents leaks).
+    await _close_mcp_connection(
+        cl.user_session.get(_MCP_CLOSE_EVENT_KEY),
+        cl.user_session.get(_MCP_TASK_KEY),
+    )
 
     cl.user_session.set(_MCP_SESSION_KEY, None)
     cl.user_session.set(_MCP_TOOLS_KEY, [])
-    cl.user_session.set(_MCP_EXIT_STACK_KEY, None)
+    cl.user_session.set(_MCP_CLOSE_EVENT_KEY, None)
+    cl.user_session.set(_MCP_TASK_KEY, None)
 
-    stack = AsyncExitStack()
-    try:
-        read, write, _ = await stack.enter_async_context(streamablehttp_client(url=settings.mcp_server_url))
-        session = await stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        result = await session.list_tools()
-        tools = _mcp_tools_to_anthropic(result.tools)
-
-        cl.user_session.set(_MCP_SESSION_KEY, session)
-        cl.user_session.set(_MCP_TOOLS_KEY, tools)
-        cl.user_session.set(_MCP_EXIT_STACK_KEY, stack)
+    session, tools, close_event, task = await _open_mcp_connection()
+    cl.user_session.set(_MCP_SESSION_KEY, session)
+    cl.user_session.set(_MCP_TOOLS_KEY, tools)
+    cl.user_session.set(_MCP_CLOSE_EVENT_KEY, close_event)
+    cl.user_session.set(_MCP_TASK_KEY, task)
+    if session is not None:
         logger.info("MCP reconnected on resume: %d tools available", len(tools))
-    except Exception:
-        logger.warning("MCP reconnect failed on resume, continuing without tools", exc_info=True)
-        await stack.aclose()
+    else:
+        logger.warning("MCP reconnect failed on resume, continuing without tools")
 
 
 @cl.on_chat_start
@@ -914,7 +987,8 @@ async def on_chat_start():
     cl.user_session.set("history", [])
     cl.user_session.set(_MCP_SESSION_KEY, None)
     cl.user_session.set(_MCP_TOOLS_KEY, [])
-    cl.user_session.set(_MCP_EXIT_STACK_KEY, None)
+    cl.user_session.set(_MCP_CLOSE_EVENT_KEY, None)
+    cl.user_session.set(_MCP_TASK_KEY, None)
 
     # Initialise the asyncpg pool for RAG uploads when running via `chainlit run`.
     # (The FastAPI lifespan in app/main.py handles this when running via uvicorn,
@@ -931,22 +1005,17 @@ async def on_chat_start():
             except Exception:
                 logger.warning("RAG asyncpg pool init failed — uploads will be unavailable", exc_info=True)
 
-    # Auto-connect to MCP server
-    stack = AsyncExitStack()
-    try:
-        read, write, _ = await stack.enter_async_context(streamablehttp_client(url=settings.mcp_server_url))
-        session = await stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        result = await session.list_tools()
-        tools = _mcp_tools_to_anthropic(result.tools)
-
-        cl.user_session.set(_MCP_SESSION_KEY, session)
-        cl.user_session.set(_MCP_TOOLS_KEY, tools)
-        cl.user_session.set(_MCP_EXIT_STACK_KEY, stack)
+    # Auto-connect to MCP server (driven by a dedicated lifecycle task so the
+    # connection is opened and closed in the same task — see _open_mcp_connection).
+    session, tools, close_event, task = await _open_mcp_connection()
+    cl.user_session.set(_MCP_SESSION_KEY, session)
+    cl.user_session.set(_MCP_TOOLS_KEY, tools)
+    cl.user_session.set(_MCP_CLOSE_EVENT_KEY, close_event)
+    cl.user_session.set(_MCP_TASK_KEY, task)
+    if session is not None:
         logger.info("MCP auto-connected: %d tools available", len(tools))
-    except Exception:
-        logger.warning("MCP auto-connect failed, continuing without tools", exc_info=True)
-        await stack.aclose()
+    else:
+        logger.warning("MCP auto-connect failed, continuing without tools")
 
     await cl.Message(
         content="Welcome to Context Climate! Ask me about World Bank climate and development data.",
@@ -955,12 +1024,11 @@ async def on_chat_start():
 
 @cl.on_chat_end
 async def on_chat_end():
-    stack: AsyncExitStack | None = cl.user_session.get(_MCP_EXIT_STACK_KEY)
-    if stack:
-        try:
-            await stack.aclose()
-        except Exception:
-            logger.warning("Error closing MCP connection", exc_info=True)
+    # Signal the lifecycle task to close the MCP connection in its own task.
+    await _close_mcp_connection(
+        cl.user_session.get(_MCP_CLOSE_EVENT_KEY),
+        cl.user_session.get(_MCP_TASK_KEY),
+    )
 
 
 @cl.on_message
