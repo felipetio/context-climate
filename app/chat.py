@@ -8,6 +8,7 @@ from typing import Any
 
 import anthropic
 import chainlit as cl
+import markdown
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
@@ -151,6 +152,9 @@ async def update_dossier_content(content: str) -> None:
     if doc is None:
         return
     doc.props["content"] = content
+    # html_content is a derived read-only display prop (Story 14.1). Raw Markdown
+    # in doc.props["content"] stays the source of truth for edits/downloads.
+    doc.props["html_content"] = markdown.markdown(content, extensions=["tables", "fenced_code"])
     doc.props["version"] += 1
     doc.content = json.dumps(doc.props)  # re-sync: CustomElement.content is set only once
     await doc.update()

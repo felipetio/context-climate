@@ -176,7 +176,7 @@ development_status:
   # to ready-for-dev 2026-05-31. Tasks verified against worktree code
   # (Document.jsx view mode, update_dossier_content prop-sync at chat.py:155).
   epic-14: in-progress
-  14-1-markdown-rendering-dossier-panel: ready-for-dev
+  14-1-markdown-rendering-dossier-panel: review
   14-2-raw-markdown-toggle: ready-for-dev
   14-3-download-dossier-markdown: ready-for-dev
   14-4-download-dossier-pdf: ready-for-dev

@@ -1,6 +1,6 @@
 # Story 14.1: Markdown Rendering in the Dossier Panel
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -24,32 +24,25 @@ So that I can read the dossier naturally without seeing `##` and `**` characters
 
 ### Task 1: Add `markdown` dependency (AC: #3)
 
-- [ ] Run `uv add markdown` (verify it is not already in `pyproject.toml`)
+- [x] Run `uv add markdown` (verify it is not already in `pyproject.toml`) — added `markdown==3.10.2`
 
 ### Task 2: Update `update_dossier_content()` in `app/chat.py` (AC: #3)
 
-- [ ] Import `markdown` at the top of `app/chat.py`
-- [ ] In `update_dossier_content(content: str)`, compute `html_content = markdown.markdown(content, extensions=["tables", "fenced_code"])`
-- [ ] Set `doc.props["html_content"] = html_content` in addition to `doc.props["content"] = content`
-- [ ] **CRITICAL — set `html_content` on `doc.props` BEFORE the existing `doc.content = json.dumps(doc.props)` line** (chat.py:155). That line is what serializes the props to the frontend; a prop added after it (or after `await doc.update()`) silently never reaches `Document.jsx`. The existing function order is: set props → `doc.content = json.dumps(doc.props)` → `await doc.update()` → `await _refresh_dossier_canvas()`.
+- [x] Import `markdown` at the top of `app/chat.py`
+- [x] In `update_dossier_content(content: str)`, compute `html_content = markdown.markdown(content, extensions=["tables", "fenced_code"])`
+- [x] Set `doc.props["html_content"] = html_content` in addition to `doc.props["content"] = content`
+- [x] **CRITICAL — set `html_content` on `doc.props` BEFORE the existing `doc.content = json.dumps(doc.props)` line** (chat.py:155). Verified: order is set props → set html_content → `doc.content = json.dumps(doc.props)` → `await doc.update()` → `await _refresh_dossier_canvas()`.
 
 ### Task 3: Update `Document.jsx` view mode (AC: #1, #2)
 
-- [ ] In the view-mode branch (when `!isEditing`), replace the `<pre>` with:
-  ```jsx
-  props.html_content
-    ? <div dangerouslySetInnerHTML={{ __html: props.html_content }} className="prose prose-sm max-w-none" />
-    : <pre className="whitespace-pre-wrap font-sans text-sm">{content ?? ""}</pre>
-  ```
-- [ ] Destructure `html_content` from `props` at the top of the component
+- [x] In the view-mode branch (when `!isEditing`), replace the `<pre>` with the `html_content ? <div dangerouslySetInnerHTML.../> : <pre.../>` fallback
+- [x] Destructure `html_content` from `props` at the top of the component
 
 ### Task 4: Manual verification (AC: all)
 
-- [ ] Restart the app with `just restart chainlit`
-- [ ] Trigger a dossier update (run an investigation or temporarily call `update_dossier_content()` in `on_chat_start`)
-- [ ] Confirm headings render as `<h1>`/`<h2>`, bold as `<strong>`, lists as `<ul>/<li>`
-- [ ] Confirm raw `##` and `**` characters are NOT visible in view mode
-- [ ] Confirm the `<pre>` fallback renders when `html_content` is absent
+- [x] Restart the app with `just restart chainlit` — boots cleanly, `markdown` import OK, MCP connected (9 tools), no errors in `.logs/app.log`
+- [x] Unit test added (`test_update_dossier_content_computes_html_from_markdown`) asserting `<h1>`/`<strong>` rendering and raw `##` absence; content preserved as raw Markdown
+- [ ] Consolidated visual verification (headings/bold/lists render; no raw `##`/`**`; `<pre>` fallback) — deferred to epic-end UI verification per review-at-epic-end plan
 
 ---
 
@@ -86,3 +79,26 @@ So that I can read the dossier naturally without seeing `##` and `**` characters
 ### XSS note
 
 The HTML is generated server-side from the dossier Markdown, which is produced by the system's own LLM — not from user-supplied external input. `dangerouslySetInnerHTML` is acceptable here.
+
+---
+
+## Dev Agent Record
+
+### Completion Notes
+
+- Added `markdown==3.10.2` via `uv add markdown`.
+- `app/chat.py`: imported `markdown` (third-party import group); `update_dossier_content()` now sets `doc.props["html_content"] = markdown.markdown(content, extensions=["tables", "fenced_code"])` BEFORE the `doc.content = json.dumps(doc.props)` re-sync line, so the prop reaches `Document.jsx`. Raw Markdown preserved in `doc.props["content"]` as source of truth.
+- `public/elements/Document.jsx`: destructured `html_content`; view-mode branch renders `<div dangerouslySetInnerHTML={{ __html: html_content }} className="prose prose-sm max-w-none" />` when `html_content` is present, falling back to `<pre className="whitespace-pre-wrap font-sans text-sm">` otherwise.
+- Tests: added `test_update_dossier_content_computes_html_from_markdown`; full `tests/app/test_chat.py` suite green (155 passing). `ruff check`/`ruff format` clean.
+- App restarts cleanly; no errors. Visual confirmation of rendered output is folded into the consolidated epic-end UI verification.
+
+### File List
+
+- `pyproject.toml` (+ `uv.lock`) — added `markdown` dependency
+- `app/chat.py` — import `markdown`; compute & set `html_content` in `update_dossier_content()`
+- `public/elements/Document.jsx` — render `html_content` via `dangerouslySetInnerHTML`, `<pre>` fallback
+- `tests/app/test_chat.py` — added html_content rendering test
+
+### Change Log
+
+- 2026-05-31: Implemented Story 14.1 — Markdown→HTML rendering in dossier panel (status → review)

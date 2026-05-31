@@ -2794,6 +2794,30 @@ class TestOnDemandDossierReveal:
         assert args[0] == [doc]
         assert kwargs.get("key") == "dossier-v1-o0"  # version-stamped + open-counter → not a no-op
 
+    async def test_update_dossier_content_computes_html_from_markdown(self, reload_chat):
+        """Story 14.1 AC3: update_dossier_content renders Markdown to html_content while
+        keeping the raw Markdown in content as the source of truth."""
+        doc = MagicMock()
+        doc.props = {"content": "", "version": 0, "phase": "dossier"}
+        doc.update = AsyncMock()
+        stored: dict = {"doc": doc}  # not revealed → no sidebar work
+        sidebar = _make_sidebar_mock()
+        with (
+            patch("app.chat.cl.user_session") as session_mock,
+            patch("app.chat.cl.ElementSidebar", sidebar),
+        ):
+            session_mock.set.side_effect = lambda k, v: stored.update({k: v})
+            session_mock.get.side_effect = lambda k, default=None: stored.get(k, default)
+            await reload_chat.update_dossier_content("# Heading\n\n**bold** text")
+
+        # Raw Markdown preserved as the source of truth.
+        assert doc.props["content"] == "# Heading\n\n**bold** text"
+        # Derived HTML carries rendered structure, not raw syntax.
+        html = doc.props["html_content"]
+        assert "<h1>Heading</h1>" in html
+        assert "<strong>bold</strong>" in html
+        assert "##" not in html
+
     async def test_update_dossier_content_no_sidebar_refresh_when_not_revealed(self, reload_chat):
         """AC4: content updates before reveal must NOT force the panel open."""
         doc = MagicMock()

@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 export default function Document() {
-  const { content, version, phase } = props;
+  const { content, version, phase, html_content } = props;
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(content ?? "");
   const debounceRef = useRef(null);
@@ -76,8 +76,10 @@ export default function Document() {
             onChange={handleChange}
             autoFocus
           />
+        ) : html_content ? (
+          <div dangerouslySetInnerHTML={{ __html: html_content }} className="prose prose-sm max-w-none" />
         ) : (
-          <pre className="prose prose-sm max-w-none whitespace-pre-wrap font-sans text-sm">{content ?? ""}</pre>
+          <pre className="whitespace-pre-wrap font-sans text-sm">{content ?? ""}</pre>
         )}
       </div>
     </Card>
