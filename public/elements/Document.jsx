@@ -17,9 +17,10 @@ export default function Document() {
 
   // Client-side download of the raw Markdown (Story 14.3). Uses a Blob + synthetic
   // anchor click so it bypasses the Chainlit message/attachment system entirely
-  // (no chat bubble). Always downloads props.content, so it reflects current edits.
+  // (no chat bubble). Downloads live textarea value when editing, or the last
+  // server-pushed content otherwise, so the file always reflects what the user sees.
   const handleDownloadMd = () => {
-    const blob = new Blob([content ?? ""], { type: "text/markdown" });
+    const blob = new Blob([isEditing ? editContent : content ?? ""], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

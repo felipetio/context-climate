@@ -36,7 +36,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-24
-last_updated: 2026-05-31  # Epic 14 (Dossier Preview & Export) registered + finalized: epic-14 -> in-progress, stories 14-1..14-4 -> ready-for-dev (PR #75 drafts validated against worktree code, prop-sync gotcha added to 14.1/14.4 tasks). Earlier: story 5-5 -> done (code review: 1 decision resolved [the lost 5.4 null-coalesce hardening committed separately under fix(5-4)], 3 patches applied to test_indicator_cache.py [null-field regression guard verified to fail on unguarded HEAD; strengthened unicode + plus-pattern literal tests], 6 dismissed as intentional CI guardrails/regression couplings; 45 tests in file, 203/203 mcp_server pass; ruff clean). Earlier: story 5-5 -> review (44 tests pass: 9 new — TestRealDataFiles×3, TestOfflineSearchPerformance×2, TestEdgeCases×4; 202/202 mcp_server suite; ruff clean). Earlier: story 5-5 -> ready-for-dev (Offline Indicator Search Test Suite spec created; test-only story, audits 5.3/5.4 coverage + adds real-file/perf/edge-case tests). Earlier: story 5-4 -> done (code review: 2 patches applied [stale 1533->1516 record count in spec; null/non-string field null-coalesce hardening], 2 deferred, 12 dismissed; 193/193 mcp_server tests pass; ruff clean). Earlier: story 5-4 -> review (Tasks 1-5 complete; 54/54 Epic 5 tests pass; 193/193 mcp_server tests pass; ruff clean). Earlier: Epic 5 recovered from deleted gallant-pascal-526e2f worktree: epic-4 -> cancelled, epic-5 -> in-progress (5-1/5-2/5-3 done, 5-4 in-progress with implementation files restored; metadata_indicators.json regenerated, +dedupe). Earlier: Epic 12 fully drafted (12.1-12.4 ready-for-dev), epic-12 -> in-progress; epic-10 -> done (closed formally)
+last_updated: 2026-05-31  # Epic 14 code-reviewed: stories 14-1..14-4 -> done (1 patch applied [MD download edit-mode race], 1 decision accepted [XSS/dangerouslySetInnerHTML single-user risk], 2 defers [data-URI size limit, WeasyHTML ctor on event loop]); epic-14 -> done. Earlier: Epic 14 (Dossier Preview & Export) registered + finalized: epic-14 -> in-progress, stories 14-1..14-4 -> ready-for-dev (PR #75 drafts validated against worktree code, prop-sync gotcha added to 14.1/14.4 tasks). Earlier: story 5-5 -> done (code review: 1 decision resolved [the lost 5.4 null-coalesce hardening committed separately under fix(5-4)], 3 patches applied to test_indicator_cache.py [null-field regression guard verified to fail on unguarded HEAD; strengthened unicode + plus-pattern literal tests], 6 dismissed as intentional CI guardrails/regression couplings; 45 tests in file, 203/203 mcp_server pass; ruff clean). Earlier: story 5-5 -> review (44 tests pass: 9 new — TestRealDataFiles×3, TestOfflineSearchPerformance×2, TestEdgeCases×4; 202/202 mcp_server suite; ruff clean). Earlier: story 5-5 -> ready-for-dev (Offline Indicator Search Test Suite spec created; test-only story, audits 5.3/5.4 coverage + adds real-file/perf/edge-case tests). Earlier: story 5-4 -> done (code review: 2 patches applied [stale 1533->1516 record count in spec; null/non-string field null-coalesce hardening], 2 deferred, 12 dismissed; 193/193 mcp_server tests pass; ruff clean). Earlier: story 5-4 -> review (Tasks 1-5 complete; 54/54 Epic 5 tests pass; 193/193 mcp_server tests pass; ruff clean). Earlier: Epic 5 recovered from deleted gallant-pascal-526e2f worktree: epic-4 -> cancelled, epic-5 -> in-progress (5-1/5-2/5-3 done, 5-4 in-progress with implementation files restored; metadata_indicators.json regenerated, +dedupe). Earlier: Epic 12 fully drafted (12.1-12.4 ready-for-dev), epic-12 -> in-progress; epic-10 -> done (closed formally)
 project: bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -175,9 +175,9 @@ development_status:
   # Stories drafted in PR #75 (epics.md + story files); registered + finalized
   # to ready-for-dev 2026-05-31. Tasks verified against worktree code
   # (Document.jsx view mode, update_dossier_content prop-sync at chat.py:155).
-  epic-14: in-progress
-  14-1-markdown-rendering-dossier-panel: review
-  14-2-raw-markdown-toggle: review
-  14-3-download-dossier-markdown: review
-  14-4-download-dossier-pdf: review
+  epic-14: done
+  14-1-markdown-rendering-dossier-panel: done
+  14-2-raw-markdown-toggle: done
+  14-3-download-dossier-markdown: done
+  14-4-download-dossier-pdf: done
   epic-14-retrospective: optional

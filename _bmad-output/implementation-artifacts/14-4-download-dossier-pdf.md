@@ -1,6 +1,6 @@
 # Story 14.4: Download Dossier as PDF
 
-Status: review
+Status: done
 
 ## Story
 
@@ -116,3 +116,8 @@ Verify on VPS with: `python -c "from weasyprint import HTML; HTML(string='<p>tes
 ### Change Log
 
 - 2026-05-31: Implemented Story 14.4 — server-side PDF export via weasyprint with graceful degradation; derived-props kept consistent across all dossier content paths (status → review)
+
+### Review Findings
+
+- [x] [Review][Defer] `data:` URI PDF exceeds Chromium ~2 MB limit for large dossiers — base64-encoded PDF is embedded directly in `<a href=pdf_data_url download>`. Chromium silently fails downloads above ~2 MB. Spec acknowledges this trade-off and documents a Starlette endpoint as future mitigation for dossiers >200 KB. [public/elements/Document.jsx, app/chat.py] — deferred, acknowledged in spec
+- [x] [Review][Defer] `WeasyHTML(string=full_html)` constructor runs synchronously on the event loop — only `write_pdf()` is offloaded to `asyncio.to_thread`. Constructor does HTML parsing and CSS resolution on the calling thread. Minor latency spike for large/complex documents; no correctness impact. [app/chat.py: _render_pdf_data_url] — deferred, performance only

@@ -1,5 +1,11 @@
 # Deferred Work
 
+## Deferred from: code review of Epic 14 (14-1..14-4) (2026-05-31)
+
+- **[14.4] `data:` URI PDF silently fails above ~2 MB in Chromium (MEDIUM):** base64-encoded PDF is sent as `pdf_data_url` prop and rendered via `<a href=pdf_data_url download>`. Chromium has an undocumented ~2 MB cap on navigable `data:` URIs; large dossiers fail silently. Spec documents this trade-off and recommends a session-keyed Starlette endpoint if dossiers exceed ~200 KB Markdown. Deferred per spec intent.
+
+- **[14.4] `WeasyHTML(string=...)` constructor runs synchronously on the event loop (LOW):** in `_render_pdf_data_url`, `WeasyHTML(string=full_html)` is evaluated eagerly on the event loop before `asyncio.to_thread` offloads `write_pdf`. The constructor does HTML parsing and CSS resolution, which can cause brief latency spikes for large dossiers. Fix: wrap the entire call — `await asyncio.to_thread(lambda: WeasyHTML(string=full_html).write_pdf())`. Performance concern only; no correctness impact.
+
 ## Deferred from: code review of 12-4-no-data-handling-in-investigation (2026-05-30)
 
 _Surfaced while reviewing 12.4 (scope: `app/prompts.py` + `tests/app/test_chat.py`). The items

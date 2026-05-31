@@ -1,6 +1,6 @@
 # Story 14.3: Download Dossier as Markdown File
 
-Status: review
+Status: done
 
 ## Story
 
@@ -89,3 +89,7 @@ So that I can archive or continue editing it in any text editor.
 ### Change Log
 
 - 2026-05-31: Implemented Story 14.3 — client-side Markdown download (status → review)
+
+### Review Findings
+
+- [x] [Review][Patch] MD download reads stale `props.content` during Edit mode — `handleDownloadMd` uses `content` (last prop from server) not `editContent` (live textarea state). User edits typed within the 400 ms debounce window before clicking "⬇ MD" are silently absent from the downloaded file. The in-code comment incorrectly says "reflects current edits". Fix: download `isEditing ? editContent : content`. [public/elements/Document.jsx]

@@ -1,6 +1,6 @@
 # Story 14.1: Markdown Rendering in the Dossier Panel
 
-Status: review
+Status: done
 
 ## Story
 
@@ -102,3 +102,7 @@ The HTML is generated server-side from the dossier Markdown, which is produced b
 ### Change Log
 
 - 2026-05-31: Implemented Story 14.1 — Markdown→HTML rendering in dossier panel (status → review)
+
+### Review Findings
+
+- [x] [Review][Decision] XSS via unsanitised `markdown` output rendered into `dangerouslySetInnerHTML` — **Accepted (2026-05-31).** Single-user tool; the edit-mode user IS the browser operator; LLM-generated content is the primary content path. Risk accepted; no sanitisation added. Spec XSS note covers both LLM-generated and user-edited content. [app/chat.py, public/elements/Document.jsx]
