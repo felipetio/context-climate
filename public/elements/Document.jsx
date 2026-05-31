@@ -5,8 +5,15 @@ import { Button } from "@/components/ui/button";
 export default function Document() {
   const { content, version, phase, html_content } = props;
   const [isEditing, setIsEditing] = useState(false);
+  const [viewMode, setViewMode] = useState("preview");
   const [editContent, setEditContent] = useState(content ?? "");
   const debounceRef = useRef(null);
+
+  // Exiting Edit mode always returns to Preview, never Raw (Story 14.2 AC4).
+  const toggleEdit = () => {
+    if (isEditing) setViewMode("preview");
+    setIsEditing((v) => !v);
+  };
 
   useEffect(() => {
     if (!isEditing) {
@@ -63,7 +70,16 @@ export default function Document() {
         <span className="title">Dossier</span>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <span className="v">v{version ?? 0}</span>
-          <Button size="sm" variant="outline" onClick={() => setIsEditing((v) => !v)}>
+          {!isEditing && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setViewMode((v) => (v === "preview" ? "raw" : "preview"))}
+            >
+              {viewMode === "preview" ? "Raw" : "Preview"}
+            </Button>
+          )}
+          <Button size="sm" variant="outline" onClick={toggleEdit}>
             {isEditing ? "View" : "Edit"}
           </Button>
         </div>
@@ -76,6 +92,8 @@ export default function Document() {
             onChange={handleChange}
             autoFocus
           />
+        ) : viewMode === "raw" ? (
+          <pre className="whitespace-pre-wrap font-mono text-sm">{content ?? ""}</pre>
         ) : html_content ? (
           <div dangerouslySetInnerHTML={{ __html: html_content }} className="prose prose-sm max-w-none" />
         ) : (
